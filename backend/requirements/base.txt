@@ -1,0 +1,65 @@
+# EnterpriseKB 后端依赖
+# ===== Web框架 =====
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# ===== 数据库 =====
+sqlalchemy[asyncio]==2.0.25
+asyncpg==0.29.0
+alembic==1.13.1
+
+# ===== Redis =====
+redis[hiredis]==5.0.1
+
+# ===== 向量数据库 =====
+pymilvus==2.3.4
+
+# ===== 全文搜索 =====
+meilisearch==0.31.0
+
+# ===== LLM =====
+openai==1.10.0  # 用于调用vLLM的OpenAI兼容API
+httpx[http2]==0.26.0
+
+# ===== Embedding & Reranker =====
+sentence-transformers==2.3.1
+FlagEmbedding==1.2.5
+torch==2.1.2
+transformers==4.37.2
+
+# ===== 企业微信 =====
+wechatpy==1.8.18
+
+# ===== 对象存储 =====
+minio==7.2.0
+
+# ===== 消息队列 =====
+celery==5.3.6
+kombu==5.3.5
+
+# ===== 认证与安全 =====
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# ===== 配置管理 =====
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# ===== 工具库 =====
+aiofiles==23.2.1
+python-dateutil==2.8.2
+PyPDF2==3.0.1
+python-docx==1.1.0
+openpyxl==3.1.2
+pdfplumber==0.10.3
+beautifulsoup4==4.12.3
+lxml==5.1.0
+
+# ===== 日志 =====
+loguru==0.7.2
+
+# ===== 监控 =====
+prometheus-client==0.19.0

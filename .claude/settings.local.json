@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/query \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"产假有多少天？\"}' | python3 -m json.tool)",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/query \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"差旅报销标准\"}' | python3 -m json.tool)",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/query \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"上班时间\"}' | python3 -m json.tool)"
+    ]
+  }
+}

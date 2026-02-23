@@ -1,0 +1,18 @@
+# 开发环境依赖
+-r base.txt
+
+# ===== 测试 =====
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+httpx==0.26.0
+
+# ===== 代码质量 =====
+black==24.1.1
+ruff==0.2.1
+mypy==1.8.0
+pre-commit==3.6.0
+
+# ===== 调试 =====
+ipython==8.21.0
+ipdb==0.13.13
