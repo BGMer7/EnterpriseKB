@@ -39,6 +39,7 @@
 | **反馈机制** | 用户可对回答进行评价，持续优化效果 |
 | **防幻觉检测** | 事实核查机制，确保答案准确性 |
 | **多模态解析** | 自动提取图像、表格，保持语义完整 |
+| **RAG评估** | 基于RAGAS框架，评估检索质量、生成质量、端到端性能 |
 
 ### 后台管理
 
@@ -125,7 +126,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                       数据与AI层                                     │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│  │PostgreSQL │ │  Redis   │ │  Milvus  │ │Meilisearch│  │
+│  │  SQLite  │ │  Redis   │ │  Milvus  │ │Meilisearch│  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
 │                                                                │
 │  ┌─────────────────────────────┐ ┌────────────┐             │
@@ -144,8 +145,8 @@
 |------|------|------|------|
 | **Web框架** | FastAPI | 0.104+ | 异步高性能，自动API文档 |
 | **Python** | Python | 3.11+ | 类型提示，异步支持 |
-| **ORM** | SQLAlchemy | 2.0+ | 异步ORM，支持PostgreSQL |
-| **数据库** | PostgreSQL | 16 | 关系型数据库，JSONB支持 |
+| **ORM** | SQLAlchemy | 2.0+ | 异步ORM，支持SQLite |
+| **数据库** | SQLite | 3.x | 轻量级关系型数据库，无需部署 |
 | **向量数据库** | Milvus | 2.3+ | HNSW索引，权限过滤 |
 | **全文搜索** | Meilisearch | 1.5+ | BM25优化，中文分词 |
 | **LLM推理** | vLLM | 0.4+ | OpenAI兼容API，流式输出 |
@@ -488,7 +489,7 @@ scalar_index_params = [
     └─────────────┘
             │
             ▼
-      写入PostgreSQL
+      写入SQLite
 ```
 
 ### 2. 企业微信Bot集成
@@ -730,7 +731,7 @@ docker-compose up -d
 | Nginx | 80/443 | 网关，SSL |
 | Frontend | 3000 | Next.js |
 | Backend | 8000 | FastAPI |
-| PostgreSQL | 5432 | 数据库 |
+| SQLite | 5432 | 数据库(文件) |
 | Redis | 6379 | 缓存 |
 | Milvus | 19530 | 向量库 |
 | Meilisearch | 7700 | 搜索引擎 |
@@ -856,6 +857,9 @@ backend/
 │   │   ├── postprocessor/
 │   │   │   ├── citation.py
 │   │   │   └── hallucination_check.py
+│   │   ├── evaluation/     # RAG评估
+│   │   │   ├── evaluator.py  # RAGAS评估器
+│   │   │   └── models.py    # 评估数据模型
 │   │   └── embedding.py
 │   │
 │   ├── processors/       # 文档处理
@@ -1101,7 +1105,7 @@ npx shadcn-ui@latest add table
                         ▼
               ┌──────────────────────┐
               │   共享存储集群      │
-              │ (PostgreSQL + Redis)   │
+              │ (SQLite + Redis)   │
               └──────────────────────┘
 ```
 
@@ -1132,7 +1136,7 @@ npx shadcn-ui@latest add table
 
 | 数据 | 备份方式 | 频率 | 保留周期 |
 |------|----------|--------|----------|
-| PostgreSQL | pg_dump | 每天 | 30天 |
+| SQLite | 文件复制 | 每天 | 30天 |
 | Milvus | 数据导出 | 每天 | 7天 |
 | MinIO | 对象同步 | 每小时 | 30天 |
 | Redis | RDB快照 | 每天 | 7天 |
@@ -1143,7 +1147,7 @@ npx shadcn-ui@latest add table
 
 | 组件 | 云服务选项 |
 |------|-----------|
-| PostgreSQL | 阿里云RDS、腾讯云PostgreSQL |
+| SQLite | 本地文件，无需云服务 |
 | 对象存储 | 阿里云OSS、腾讯云COS |
 | Redis | 阿里云Redis、腾讯云Redis |
 | LLM | 通义千问、DeepSeek、智谱AI |
