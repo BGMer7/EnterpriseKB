@@ -218,7 +218,7 @@ class MeilisearchClientWrapper:
         删除文档块数据
 
         Args:
-            chunk_ids: PostgreSQL chunk ID列表
+            chunk_ids: SQLite chunk ID列表
 
         Returns:
             int: 删除的数量
@@ -238,7 +238,7 @@ class MeilisearchClientWrapper:
         根据文档ID删除所有相关chunk
 
         Args:
-            document_id: PostgreSQL document ID
+            document_id: SQLite document ID
 
         Returns:
             int: 删除的数量

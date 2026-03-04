@@ -11,7 +11,7 @@ from app.schemas.user import (
     UserResponse, UserCreate, UserUpdate,
     UserRoleAssign, DepartmentResponse, RoleResponse
 )
-from app.schemas.user import ApiResponse
+from app.schemas.admin import ApiResponse
 from app.models.user import User
 from app.core.constants import Permissions
 

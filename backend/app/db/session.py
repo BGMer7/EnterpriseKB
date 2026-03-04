@@ -10,15 +10,25 @@ from sqlalchemy.ext.asyncio import (
 
 from app.config import settings
 
+# 根据数据库类型配置引擎参数
+engine_kwargs = {
+    "echo": settings.DEBUG,
+}
+
+# SQLite不需要连接池参数
+if "sqlite" not in settings.DATABASE_URL:
+    engine_kwargs.update({
+        "pool_size": settings.DATABASE_POOL_SIZE,
+        "max_overflow": settings.DATABASE_MAX_OVERFLOW,
+        "pool_timeout": settings.DATABASE_POOL_TIMEOUT,
+        "pool_recycle": settings.DATABASE_POOL_RECYCLE,
+        "pool_pre_ping": True,
+    })
+
 # 创建异步引擎
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    pool_timeout=settings.DATABASE_POOL_TIMEOUT,
-    pool_recycle=settings.DATABASE_POOL_RECYCLE,
-    pool_pre_ping=True,  # 检查连接是否可用
+    **engine_kwargs
 )
 
 # 创建会话工厂
@@ -43,6 +53,10 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             yield session
         finally:
             await session.close()
+
+
+# 别名，保持与auth.py等文件的兼容性
+get_db = get_db_session
 
 
 async def init_db() -> None:

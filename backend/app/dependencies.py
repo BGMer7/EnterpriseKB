@@ -32,6 +32,10 @@ async def get_redis():
 
 
 # ===== 用户认证依赖 =====
+# 开发模式：跳过鉴权，返回默认用户
+SKIP_AUTH = True  # 设置为 True 则跳过企业微信登录验证
+
+
 async def get_current_user(
     db: AsyncSession = Depends(get_db),
     authorization: Optional[str] = Header(None)
@@ -49,6 +53,10 @@ async def get_current_user(
     Raises:
         HTTPException: 认证失败时抛出401
     """
+    # 开发模式：跳过鉴权，返回默认测试用户
+    if SKIP_AUTH:
+        return await _get_mock_user(db)
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="无法验证凭据",
@@ -90,6 +98,49 @@ async def get_current_user(
     return user
 
 
+async def _get_mock_user(db: AsyncSession) -> User:
+    """
+    获取模拟用户（开发模式使用）
+    如果没有用户则创建一个默认用户
+    """
+    from sqlalchemy import select
+
+    # 尝试获取第一个用户
+    result = await db.execute(select(User).limit(1))
+    user = result.scalar_one_or_none()
+
+    if user:
+        return user
+
+    # 如果没有用户，创建一个默认用户
+    from app.models.role import Role
+
+    # 获取默认角色
+    result = await db.execute(select(Role).where(Role.name == "REGULAR_USER"))
+    role = result.scalar_one_or_none()
+
+    if not role:
+        # 如果没有角色，创建一个
+        role = Role(name="REGULAR_USER", description="普通用户")
+        db.add(role)
+        await db.commit()
+        await db.refresh(role)
+
+    # 创建默认用户
+    mock_user = User(
+        wechat_id="test_user",
+        name="测试用户",
+        email="test@example.com",
+        is_active=True,
+        roles=[role]
+    )
+    db.add(mock_user)
+    await db.commit()
+    await db.refresh(mock_user)
+
+    return mock_user
+
+
 async def get_current_active_user(
     current_user: User = Depends(get_current_user)
 ) -> User:
@@ -111,7 +162,7 @@ async def get_current_active_user(
 
 
 # ===== 权限检查依赖 =====
-async def require_permission(permission: str):
+def require_permission(permission: str):
     """
     要求特定权限的依赖
 

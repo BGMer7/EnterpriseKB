@@ -112,13 +112,13 @@ class MilvusClientWrapper:
                 name="chunk_id",
                 dtype=DataType.VARCHAR,
                 max_length=64,
-                description="关联PostgreSQL chunk ID"
+                description="关联SQLite chunk ID"
             ),
             FieldSchema(
                 name="document_id",
                 dtype=DataType.VARCHAR,
                 max_length=64,
-                description="关联PostgreSQL document ID"
+                description="关联SQLite document ID"
             ),
             # 内容字段
             FieldSchema(
@@ -336,7 +336,7 @@ class MilvusClientWrapper:
         删除文档块数据
 
         Args:
-            chunk_ids: PostgreSQL chunk ID列表
+            chunk_ids: SQLite chunk ID列表
 
         Returns:
             int: 删除的数量
@@ -368,7 +368,7 @@ class MilvusClientWrapper:
         根据文档ID删除所有相关chunk
 
         Args:
-            document_id: PostgreSQL document ID
+            document_id: SQLite document ID
 
         Returns:
             int: 删除的数量

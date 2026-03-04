@@ -80,7 +80,7 @@ async def root():
 
 
 # 导入路由 (延迟导入避免循环依赖)
-from app.api.v1 import auth, chat, documents, qa_pairs, users, admin
+from app.api.v1 import auth, chat, documents, qa_pairs, users, admin, parser
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
@@ -88,6 +88,7 @@ app.include_router(documents.router, prefix="/api/v1/documents", tags=["Document
 app.include_router(qa_pairs.router, prefix="/api/v1/qa-pairs", tags=["QA Pairs"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(parser.router, prefix="/api/v1", tags=["文档解析"])
 
 
 if __name__ == "__main__":

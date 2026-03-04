@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_permission
-from app.schemas.user import ApiResponse
+from app.schemas.admin import ApiResponse
 from app.models.user import User
 from app.core.constants import Permissions
 

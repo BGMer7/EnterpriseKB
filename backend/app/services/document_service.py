@@ -189,7 +189,7 @@ class DocumentService:
         chunk_texts = [c["content"] for c in chunks]
         embeddings = encode_text(chunk_texts)
 
-        # 4. 保存到PostgreSQL
+        # 4. 保存到SQLite
         for chunk_data in chunks:
             chunk = Chunk(
                 document_id=document_id,

@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 from io import BytesIO
 from pathlib import Path
 import logging
+import os
+from datetime import datetime
 
 import pymupdf  # PyMuPDF
 from docx import Document as DocxDocument
@@ -197,9 +199,17 @@ class DocumentParser:
 
         doc.close()
 
+        # 获取文件信息
+        file_stat = os.stat(file_path)
+
         metadata = {
             "page_count": len(pages),
-            "format": "PDF"
+            "format": "PDF",
+            "file_name": os.path.basename(file_path),
+            "file_size": file_stat.st_size,
+            "file_created_date": datetime.fromtimestamp(file_stat.st_ctime).isoformat(),
+            "file_modified_date": datetime.fromtimestamp(file_stat.st_mtime).isoformat(),
+            "upload_date": datetime.now().isoformat(),
         }
 
         if use_ocr and ocr_used:

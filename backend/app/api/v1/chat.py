@@ -8,10 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.dependencies import get_current_user, get_rag_pipeline
-from app.schemas.chat import (
-    ChatRequest, ChatResponse,
-    FeedbackRequest, ApiResponse
-)
+from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest
+from app.schemas.admin import ApiResponse
 from app.models.user import User
 
 router = APIRouter()

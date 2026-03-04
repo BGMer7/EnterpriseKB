@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     ]
 
     # ===== 数据库配置 =====
-    DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/enterprisekb"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./enterprisekb.db"
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
     DATABASE_POOL_TIMEOUT: int = 30
