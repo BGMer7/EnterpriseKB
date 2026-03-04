@@ -21,7 +21,8 @@ from app.integrations.minio_client import get_minio_client
 from app.processors.parser import parse_document
 from app.processors.cleaner import clean_document
 from app.processors.chunker import chunk_document
-from app.processors.embedder import encode_text
+from app.processors.multimodal_chunker import multimodal_chunk_document, has_multimodal_content
+from app.rag.embedding import encode_text
 from app.rag.pipeline import RAGPipeline
 from app.integrations.milvus_client import get_milvus_client
 from app.integrations.search_engine import get_meilisearch_client
@@ -174,12 +175,24 @@ class DocumentService:
         )
 
         # 2. 文档分块
-        chunks = chunk_document(
-            document_id=document_id,
-            content=cleaned_content,
-            pages=parse_result.get("pages", []),
-            strategy="fixed"
-        )
+        # 检查是否包含多模态内容
+        pages = parse_result.get("pages", [])
+        if has_multimodal_content(pages):
+            # 使用多模态分块
+            logger.info(f"Using multimodal chunking for document {document_id}")
+            chunks = multimodal_chunk_document(
+                document_id=document_id,
+                pages=pages,
+                strategy="multimodal"
+            )
+        else:
+            # 使用传统分块
+            chunks = chunk_document(
+                document_id=document_id,
+                content=cleaned_content,
+                pages=pages,
+                strategy="fixed"
+            )
 
         if not chunks:
             logger.warning(f"No chunks generated for document {document_id}")
@@ -191,11 +204,22 @@ class DocumentService:
 
         # 4. 保存到SQLite
         for chunk_data in chunks:
+            # 构建扩展metadata
+            metadata = chunk_data.get("metadata", {})
+
+            # 添加多模态元数据
+            if "chunk_type" in chunk_data:
+                metadata["chunk_type"] = chunk_data["chunk_type"]
+            if chunk_data.get("images"):
+                metadata["images"] = chunk_data["images"]
+            if chunk_data.get("tables"):
+                metadata["tables"] = chunk_data["tables"]
+
             chunk = Chunk(
                 document_id=document_id,
                 chunk_index=chunk_data["chunk_index"],
                 content=chunk_data["content"],
-                metadata=chunk_data["metadata"]
+                metadata=metadata
             )
             db.add(chunk)
 
@@ -206,6 +230,10 @@ class DocumentService:
         milvus_data = []
 
         for idx, (chunk_data, embedding) in enumerate(zip(chunks, embeddings.tolist())):
+            # 构建扩展metadata
+            metadata = chunk_data.get("metadata", {})
+            chunk_type = chunk_data.get("chunk_type", "text")
+
             milvus_data.append({
                 "chunk_id": chunk_data["id"],
                 "document_id": document_id,
@@ -214,9 +242,12 @@ class DocumentService:
                 "department_id": None,  # 从document表获取
                 "is_public": False,  # 从document表获取
                 "allowed_roles": [],  # 从document表获取
-                "page_number": chunk_data["metadata"].get("page_number"),
-                "section": chunk_data["metadata"].get("section"),
+                "page_number": chunk_data.get("page_number") or metadata.get("page_number"),
+                "section": chunk_data.get("section") or metadata.get("section"),
                 "chunk_index": chunk_data["chunk_index"],
+                "chunk_type": chunk_type,
+                "has_images": len(chunk_data.get("images", [])) > 0,
+                "has_tables": len(chunk_data.get("tables", [])) > 0,
                 "embedding": embedding,
                 "created_at": int(datetime.utcnow().timestamp()),
             })

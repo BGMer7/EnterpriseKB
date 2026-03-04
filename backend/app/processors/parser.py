@@ -189,11 +189,17 @@ class DocumentParser:
                 except Exception as e:
                     logger.warning(f"OCR failed for page {page_num}: {e}")
 
+            # 提取图像和表格
+            images = DocumentParser._extract_images_from_pdf_page(page, page_num)
+            tables = DocumentParser._extract_tables_from_pdf_page(page, page_num)
+
             pages.append({
                 "page_number": page_num,
                 "content": text,
                 "width": width,
                 "height": height,
+                "images": images,
+                "tables": tables,
             })
             full_content.append(text)
 
@@ -220,6 +226,167 @@ class DocumentParser:
             "pages": pages,
             "metadata": metadata
         }
+
+    @staticmethod
+    def _extract_images_from_pdf_page(page, page_num: int) -> List[Dict[str, Any]]:
+        """
+        从PDF页面提取图像
+
+        Args:
+            page: PyMuPDF页面对象
+            page_num: 页码
+
+        Returns:
+            List[Dict]: 图像信息列表
+        """
+        images = []
+        image_list = page.get_images()
+
+        for img_index, img in enumerate(image_list):
+            try:
+                xref = img[0]
+                base_image = page.parent.extract_image(xref)
+
+                image_info = {
+                    "id": f"p{page_num}_img{img_index}",
+                    "xref": xref,
+                    "width": base_image.get("width"),
+                    "height": base_image.get("height"),
+                    "ext": base_image.get("ext"),
+                    "size": len(base_image.get("image", b"")),
+                    # 尝试获取图像位置
+                    "position": DocumentParser._get_image_position(page, xref)
+                }
+                images.append(image_info)
+            except Exception as e:
+                logger.warning(f"Failed to extract image {img_index} from page {page_num}: {e}")
+
+        return images
+
+    @staticmethod
+    def _get_image_position(page, xref: int) -> Optional[Dict[str, float]]:
+        """获取图像在页面中的位置"""
+        try:
+            # 遍历页面元素查找图像
+            for block in page.get_text("dict")["blocks"]:
+                if block.get("type") == 1:  # 图像块
+                    if block.get("xref") == xref:
+                        bbox = block.get("bbox", [0, 0, 0, 0])
+                        return {
+                            "x": bbox[0],
+                            "y": bbox[1],
+                            "width": bbox[2] - bbox[0],
+                            "height": bbox[3] - bbox[1]
+                        }
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _extract_tables_from_pdf_page(page, page_num: int) -> List[Dict[str, Any]]:
+        """
+        从PDF页面提取表格
+
+        Args:
+            page: PyMuPDF页面对象
+            page_num: 页码
+
+        Returns:
+            List[Dict]: 表格信息列表
+        """
+        tables = []
+
+        try:
+            # 使用表格提取功能（PyMuPDF 4.3.0+）
+            tables_found = page.find_tables()
+
+            if tables_found:
+                for table_idx, table in enumerate(tables_found.tables):
+                    try:
+                        table_data = table.extract()
+
+                        if table_data and len(table_data) > 0:
+                            # 获取表格标题（查找表格上方的文本）
+                            # 获取表格边界（bbox返回元组）
+                            rect = table.bbox
+                            if isinstance(rect, tuple):
+                                x0, y0, x1, y1 = rect
+                            else:
+                                x0, y0, x1, y1 = rect.x0, rect.y0, rect.x1, rect.y1
+
+                            # 查找表格上方的小文本作为标题
+                            search_rect = pymupdf.Rect(x0, max(0, y0 - 50), x1, y0)
+
+                            # 获取表格边界（bbox返回元组）
+                            rect = table.bbox
+                            if isinstance(rect, tuple):
+                                x0, y0, x1, y1 = rect
+                            else:
+                                x0, y0, x1, y1 = rect.x0, rect.y0, rect.x1, rect.y1
+
+                            # 简单实现：使用表格位置信息作为描述
+                            table_info = {
+                                "id": f"p{page_num}_table{table_idx}",
+                                "row_count": len(table_data),
+                                "col_count": len(table_data[0]) if table_data else 0,
+                                "data": table_data,
+                                "bbox": [x0, y0, x1, y1]
+                            }
+                            tables.append(table_info)
+                    except Exception as e:
+                        logger.warning(f"Failed to extract table {table_idx} from page {page_num}: {e}")
+        except AttributeError:
+            # find_tables方法不存在，使用备用方法
+            logger.debug("find_tables not available, using fallback table extraction")
+            tables = DocumentParser._extract_tables_fallback(page, page_num)
+        except Exception as e:
+            logger.warning(f"Table extraction failed for page {page_num}: {e}")
+
+        return tables
+
+    @staticmethod
+    def _extract_tables_fallback(page, page_num: int) -> List[Dict[str, Any]]:
+        """备用表格提取方法 - 基于文本对齐分析"""
+        tables = []
+
+        try:
+            # 获取页面文本，按行分割
+            text = page.get_text()
+            lines = text.split("\n")
+
+            # 简单的表格检测：检查是否有多个列对齐的行
+            table_candidates = []
+            current_table = []
+
+            for line in lines:
+                # 检测是否为表格行（多个制表符或空格分隔）
+                if "\t" in line or "  " in line:
+                    # 分割并清理
+                    cells = [c.strip() for c in line.replace("\t", " | ").split(" | ") if c.strip()]
+                    if len(cells) >= 2:
+                        current_table.append(cells)
+                else:
+                    if len(current_table) >= 2:
+                        table_candidates.append(current_table)
+                    current_table = []
+
+            if len(current_table) >= 2:
+                table_candidates.append(current_table)
+
+            # 创建表格对象
+            for idx, table_data in enumerate(table_candidates):
+                tables.append({
+                    "id": f"p{page_num}_table{idx}",
+                    "row_count": len(table_data),
+                    "col_count": len(table_data[0]) if table_data else 0,
+                    "data": table_data,
+                    "extracted_by": "fallback"
+                })
+
+        except Exception as e:
+            logger.warning(f"Fallback table extraction failed for page {page_num}: {e}")
+
+        return tables
 
     @staticmethod
     def _ocr_page_with_paddle(file_path: str, page_num: int = 1, langs: str = 'ch,en') -> str:
@@ -302,24 +469,31 @@ class DocumentParser:
                 })
 
         # 添加表格
-        for table in doc.tables:
+        for table_idx, table in enumerate(doc.tables):
             table_data = []
             for row in table.rows:
                 row_data = [cell.text.strip() for cell in row.cells]
                 table_data.append(row_data)
             all_elements.append({
                 "type": "table",
+                "id": f"table_{table_idx}",
                 "data": table_data
             })
+
+        # 提取图像
+        images = DocumentParser._extract_images_from_docx(doc)
 
         # 按页面组织（简单模拟，docx没有页概念）
         current_page = {
             "page_number": 1,
             "content": "",
-            "elements": []
+            "elements": [],
+            "images": images,
+            "tables": []
         }
 
         sections = []
+        table_count = 0
         for elem in all_elements:
             if elem["type"] == "paragraph":
                 # 检测章节标题
@@ -335,6 +509,14 @@ class DocumentParser:
                 table_text = "\n".join([" | ".join(row) for row in elem["data"]])
                 current_page["content"] += table_text + "\n"
                 current_page["elements"].append(elem)
+                # 添加表格信息
+                current_page["tables"].append({
+                    "id": elem.get("id", f"table_{table_count}"),
+                    "row_count": len(elem["data"]),
+                    "col_count": len(elem["data"][0]) if elem["data"] else 0,
+                    "data": elem["data"]
+                })
+                table_count += 1
 
         current_page["sections"] = sections
         pages.append(current_page)
@@ -348,9 +530,50 @@ class DocumentParser:
                 "format": "DOCX",
                 "element_count": len(all_elements),
                 "table_count": len(doc.tables),
+                "image_count": len(images),
                 "paragraph_count": len(doc.paragraphs)
             }
         }
+
+    @staticmethod
+    def _extract_images_from_docx(doc) -> List[Dict[str, Any]]:
+        """
+        从Word文档提取图像
+
+        Args:
+            doc: python-docx Document对象
+
+        Returns:
+            List[Dict]: 图像信息列表
+        """
+        images = []
+
+        try:
+            # 获取文档中的内联图像
+            for rel in doc.part.rels.values():
+                if "image" in rel.target_ref:
+                    try:
+                        image_part = rel.target_part
+                        image_info = {
+                            "id": rel.rId,
+                            "content_type": image_part.content_type,
+                            "size": len(image_part.blob),
+                        }
+
+                        # 尝试获取图像尺寸
+                        if hasattr(image_part, "image"):
+                            img = image_part.image
+                            image_info["width"] = img.width if hasattr(img, "width") else None
+                            image_info["height"] = img.height if hasattr(img, "height") else None
+
+                        images.append(image_info)
+                    except Exception as e:
+                        logger.warning(f"Failed to extract image {rel.rId}: {e}")
+
+        except Exception as e:
+            logger.warning(f"Failed to extract images from docx: {e}")
+
+        return images
 
     @staticmethod
     def _parse_doc(file_path: str) -> Dict[str, Any]:
@@ -469,13 +692,31 @@ class DocumentParser:
 
             slide_titles.append(title or f"Slide {slide_num}")
 
-            # 提取所有文本框内容
-            for shape in slide.shapes:
+            # 提取图像
+            slide_images = []
+            for shape_idx, shape in enumerate(slide.shapes):
+                # 提取图片
+                if hasattr(shape, "image"):
+                    try:
+                        img = shape.image
+                        image_info = {
+                            "id": f"slide{slide_num}_img{shape_idx}",
+                            "content_type": img.content_type if hasattr(img, "content_type") else None,
+                            "width": img.size[0] if hasattr(img, "size") else None,
+                            "height": img.size[1] if hasattr(img, "size") else None,
+                        }
+                        slide_images.append(image_info)
+                    except Exception as e:
+                        logger.warning(f"Failed to extract image from slide {slide_num}: {e}")
+
                 if hasattr(shape, "text") and shape.text.strip():
                     if shape != slide.shapes.title:  # 跳过标题（已处理）
                         slide_content += shape.text.strip() + "\n"
                         elements.append({"type": "text", "text": shape.text.strip()})
 
+            # 提取所有文本框内容
+            slide_tables = []
+            for shape in slide.shapes:
                 # 提取表格内容
                 if shape.shape_type == 19:  # MSO_SHAPE_TYPE.TABLE
                     table_data = []
@@ -485,12 +726,20 @@ class DocumentParser:
                     table_text = "\n".join([" | ".join(row) for row in table_data])
                     slide_content += f"[表格]\n{table_text}\n"
                     elements.append({"type": "table", "data": table_data})
+                    slide_tables.append({
+                        "id": f"slide{slide_num}_table{len(slide_tables)}",
+                        "row_count": len(table_data),
+                        "col_count": len(table_data[0]) if table_data else 0,
+                        "data": table_data
+                    })
 
             pages.append({
                 "page_number": slide_num,
                 "title": title,
                 "content": slide_content.strip(),
-                "elements": elements
+                "elements": elements,
+                "images": slide_images,
+                "tables": slide_tables
             })
             full_content.append(slide_content.strip())
 
