@@ -330,12 +330,13 @@ class MilvusClientWrapper:
                 "document_id": chunk["document_id"],
                 "content": chunk["content"],
                 "title": chunk["title"],
-                "department_id": chunk.get("department_id"),
+                "department_id": chunk.get("department_id", ""),
                 "is_public": chunk.get("is_public", False),
                 "allowed_roles": chunk.get("allowed_roles", []),
-                "page_number": chunk.get("page_number"),
-                "section": chunk.get("section"),
+                "page_number": chunk.get("page_number", 0),
+                "section": chunk.get("section", ""),
                 "chunk_index": chunk["chunk_index"],
+                "created_at": chunk.get("created_at", 0),
                 "embedding": chunk["embedding"],
             })
 

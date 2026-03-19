@@ -1,6 +1,7 @@
 """
 角色数据模型
 """
+from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import String

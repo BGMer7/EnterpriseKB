@@ -6,7 +6,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import logging
+import os
 
 from app.config import settings
 from app.db.session import engine, init_db
@@ -68,10 +71,14 @@ async def health_check():
     return {"status": "healthy", "version": settings.VERSION}
 
 
-# 根路径
+# 根路径 - 返回测试页面
 @app.get("/")
 async def root():
     """根路径"""
+    # 返回测试页面
+    test_page_path = os.path.join(os.path.dirname(__file__), "static", "test.html")
+    if os.path.exists(test_page_path):
+        return FileResponse(test_page_path)
     return {
         "message": "EnterpriseKB API",
         "version": settings.VERSION,
@@ -80,7 +87,7 @@ async def root():
 
 
 # 导入路由 (延迟导入避免循环依赖)
-from app.api.v1 import auth, chat, documents, qa_pairs, users, admin, parser, evaluation
+from app.api.v1 import auth, chat, documents, qa_pairs, users, admin, parser, evaluation, retrieval
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
@@ -90,6 +97,7 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(parser.router, prefix="/api/v1", tags=["文档解析"])
 app.include_router(evaluation.router, prefix="/api/v1/evaluation", tags=["RAG评估"])
+app.include_router(retrieval.router, prefix="/api/v1/retrieval", tags=["检索测试"])
 
 
 if __name__ == "__main__":

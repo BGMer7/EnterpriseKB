@@ -118,7 +118,7 @@ class BGEModel(EmbeddingModel):
         # 检测可用设备
         import torch
         if self.device == "cuda" and not torch.cuda.is_available():
-            print(f"Warning: CUDA not available, using CPU instead")
+            print(f"[EMBEDDING] Warning: CUDA not available, using CPU instead")
             self.device = "cpu"
 
         # 使用sentence-transformers加载所有模型（包括BGE-M3）
@@ -199,10 +199,17 @@ def get_embedding_model() -> EmbeddingModel:
     global _embedding_model
 
     if _embedding_model is None:
+        import time
+        t0 = time.time()
+        print(f"[EMBEDDING] Loading model: {settings.EMBEDDING_MODEL}")
         _embedding_model = BGEModel(
             model_name=settings.EMBEDDING_MODEL,
             device=settings.EMBEDDING_DEVICE
         )
+        t1 = time.time()
+        print(f"[EMBEDDING] Model loaded in {t1-t0:.2f}s")
+    else:
+        print(f"[EMBEDDING] Using cached model (id: {id(_embedding_model)})")
 
     return _embedding_model
 

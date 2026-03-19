@@ -32,8 +32,8 @@ class Chunk(Base, TimestampMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(String(10000), nullable=False)
 
-    # 元数据
-    metadata: Mapped[dict] = mapped_column(
+    # 元数据 (避免使用 metadata 作为列名，这是 SQLAlchemy 保留字)
+    chunk_metadata: Mapped[dict] = mapped_column(
         JSON,
         nullable=False,
         default={}

@@ -66,14 +66,18 @@ async def init_db() -> None:
     """
     # 在生产环境应该使用Alembic迁移
     if settings.DEBUG:
-        from app.db.base import Base
-        from app.models import (
-            user, role, permission, document,
-            chunk, qa_pair, conversation, message
-        )
+        try:
+            from app.db.base import Base
+            from app.models import (
+                user, role, document,
+                chunk, qa_pair, conversation, message
+            )
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        except Exception as e:
+            print(f"Warning: Database initialization skipped: {e}")
+            return
 
     print("Database initialized")
 

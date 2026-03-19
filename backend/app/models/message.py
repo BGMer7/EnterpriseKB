@@ -52,7 +52,7 @@ class Message(Base, TimestampMixin):
     )
 
     # 元数据
-    metadata: Mapped[dict] = mapped_column(
+    message_metadata: Mapped[dict] = mapped_column(
         JSON,
         nullable=False,
         default={}

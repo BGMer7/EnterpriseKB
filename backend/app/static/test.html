@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EnterpriseKB - 检索测试</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            color: #555;
+            font-size: 18px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-weight: 500;
+        }
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        input[type="file"]:hover {
+            border-color: #007bff;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        button.secondary {
+            background: #6c757d;
+        }
+        button.secondary:hover {
+            background: #545b62;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .result.success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        .result.error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+        .result-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border: 1px solid #eee;
+        }
+        .result-item h4 {
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .result-item .score {
+            color: #28a745;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .result-item .content {
+            color: #666;
+            font-size: 13px;
+            line-height: 1.6;
+            margin-top: 8px;
+        }
+        .result-item .meta {
+            color: #999;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .tips {
+            background: #fff3cd;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EnterpriseKB - 检索测试</h1>
+
+        <!-- 文档上传 -->
+        <div class="card">
+            <h2>📤 上传文档</h2>
+            <div class="tips">
+                支持 PDF、TXT 文件。上传后将自动进行分块、向量化并存入向量库。
+            </div>
+            <div class="form-group">
+                <label>选择文件</label>
+                <input type="file" id="fileInput" accept=".pdf,.txt">
+            </div>
+            <div class="form-group">
+                <label>分块策略</label>
+                <select id="chunkStrategy">
+                    <option value="fixed">固定大小 (fixed)</option>
+                    <option value="semantic">语义分块 (semantic)</option>
+                    <option value="structural">结构化分块 (structural)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>块大小 (tokens)</label>
+                <input type="number" id="chunkSize" value="512" min="100" max="2000">
+            </div>
+            <button onclick="uploadDocument()" id="uploadBtn">上传并处理</button>
+            <div id="uploadResult"></div>
+        </div>
+
+        <!-- 文档检索 -->
+        <div class="card">
+            <h2>🔍 检索测试</h2>
+            <div class="form-group">
+                <label>输入问题</label>
+                <input type="text" id="queryInput" placeholder="例如：什么是年假政策？">
+            </div>
+            <div class="form-group">
+                <label>返回数量</label>
+                <input type="number" id="topK" value="5" min="1" max="20">
+            </div>
+            <div class="btn-group">
+                <button onclick="search()" id="searchBtn">检索</button>
+                <button class="secondary" onclick="clearResults()">清空结果</button>
+            </div>
+            <div id="searchResult"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/v1/retrieval';
+
+        // 上传文档
+        async function uploadDocument() {
+            const fileInput = document.getElementById('fileInput');
+            const chunkStrategy = document.getElementById('chunkStrategy').value;
+            const chunkSize = parseInt(document.getElementById('chunkSize').value);
+            const resultDiv = document.getElementById('uploadResult');
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            if (!fileInput.files[0]) {
+                resultDiv.innerHTML = '<div class="result error">请选择文件</div>';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('chunk_strategy', chunkStrategy);
+            formData.append('chunk_size', chunkSize);
+
+            uploadBtn.disabled = true;
+            resultDiv.innerHTML = '<div class="loading"><span class="spinner"></span>处理中，请稍候...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/document`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="result error">错误: ${data.error}</div>`;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result success">
+                            ✅ 上传成功！<br>
+                            文档ID: ${data.document_id}<br>
+                            分块数量: ${data.chunks_count}<br>
+                            状态: ${data.status}
+                        </div>
+                    `;
+                    fileInput.value = ''; // 清空文件选择
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="result error">请求失败: ${error.message}</div>`;
+            } finally {
+                uploadBtn.disabled = false;
+            }
+        }
+
+        // 检索
+        async function search() {
+            const query = document.getElementById('queryInput').value.trim();
+            const topK = parseInt(document.getElementById('topK').value);
+            const resultDiv = document.getElementById('searchResult');
+            const searchBtn = document.getElementById('searchBtn');
+
+            if (!query) {
+                resultDiv.innerHTML = '<div class="result error">请输入问题</div>';
+                return;
+            }
+
+            searchBtn.disabled = true;
+            resultDiv.innerHTML = '<div class="loading"><span class="spinner"></span>检索中，请稍候...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        top_k: topK
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="result error">错误: ${data.error}</div>`;
+                } else if (data.results && data.results.length > 0) {
+                    let html = `<div class="result">找到 ${data.total} 条相关文档：</div>`;
+                    data.results.forEach((item, index) => {
+                        html += `
+                            <div class="result-item">
+                                <h4>#${index + 1} 相关度: <span class="score">${(item.score * 100).toFixed(2)}%</span></h4>
+                                <div class="content">${item.content}</div>
+                                <div class="meta">
+                                    文档ID: ${item.document_id} |
+                                    块ID: ${item.chunk_id} |
+                                    ${item.document_title ? '文件名: ' + item.document_title : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = '<div class="result">未找到相关文档，请先上传文档或尝试其他问题。</div>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="result error">请求失败: ${error.message}</div>`;
+            } finally {
+                searchBtn.disabled = false;
+            }
+        }
+
+        // 清空结果
+        function clearResults() {
+            document.getElementById('searchResult').innerHTML = '';
+        }
+
+        // 回车搜索
+        document.getElementById('queryInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                search();
+            }
+        });
+    </script>
+</body>
+</html>

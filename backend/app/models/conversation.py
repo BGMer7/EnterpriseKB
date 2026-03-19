@@ -1,7 +1,7 @@
 """
 对话数据模型
 """
-from typing import TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import String, ForeignKey
