@@ -1,20 +1,37 @@
 """
 BGE Reranker重排序器
 使用BGE系列cross-encoder模型对检索结果进行重排序
+支持sentence-transformers的CrossEncoder（更稳定）
 """
 from typing import List, Dict, Any, Optional
 from functools import lru_cache
 
 import torch
-from FlagEmbedding import BGEM3FlagModel
 
 from app.config import settings
+
+# 优先使用sentence-transformers的CrossEncoder
+CROSS_ENCODER_AVAILABLE = False
+try:
+    from sentence_transformers import CrossEncoder
+    CROSS_ENCODER_AVAILABLE = True
+except ImportError:
+    CrossEncoder = None
+
+# FlagEmbedding的reranker（可选，用于高级功能）
+FLAG_RERANKER_AVAILABLE = False
+try:
+    from FlagEmbedding import BGEM3FlagModel
+    FLAG_RERANKER_AVAILABLE = True
+except ImportError:
+    BGEM3FlagModel = None
 
 
 class BGEReranker:
     """
     BGE Reranker
     使用cross-encoder对检索结果重新排序
+    优先使用sentence-transformers的CrossEncoder
     """
 
     def __init__(
@@ -33,11 +50,31 @@ class BGEReranker:
     def load_model(self):
         """加载reranker模型"""
         if self._model is None:
-            self._model = BGEM3FlagModel(
-                self.model_name,
-                use_fp16=True,
-                device=self.device
-            )
+            # 检测可用设备
+            import torch
+            device = self.device
+            if device == "cuda" and not torch.cuda.is_available():
+                print(f"Warning: CUDA not available, using CPU instead")
+                device = "cpu"
+
+            if CROSS_ENCODER_AVAILABLE:
+                # 使用sentence-transformers的CrossEncoder（更稳定）
+                self._model = CrossEncoder(
+                    self.model_name,
+                    device=device
+                )
+            elif FLAG_RERANKER_AVAILABLE:
+                # 回退到FlagEmbedding
+                self._model = BGEM3FlagModel(
+                    self.model_name,
+                    use_fp16=True,
+                    device=device
+                )
+            else:
+                raise ImportError(
+                    "No reranker available. Install sentence-transformers: "
+                    "pip install sentence-transformers"
+                )
 
     def rerank(
         self,
@@ -78,20 +115,29 @@ class BGEReranker:
         # 提取文档内容
         doc_contents = [doc["content"] for doc in documents]
 
-        # 计算相关性分数
-        scores = self._model.compute_score(
-            [[query, doc] for doc in doc_contents],
-            batch_size=self.batch_size,
-            max_length=512
-        )
+        # CrossEncoder使用predict方法
+        if isinstance(self._model, CrossEncoder):
+            scores = self._model.predict(
+                [[query, doc] for doc in doc_contents],
+                batch_size=self.batch_size
+            )
+        else:
+            # FlagEmbedding的BGEM3FlagModel使用compute_score
+            scores = self._model.compute_score(
+                [[query, doc] for doc in doc_contents],
+                batch_size=self.batch_size,
+                max_length=512
+            )
 
         # 处理分数
         if isinstance(scores, torch.Tensor):
             scores = scores.tolist()
+        elif isinstance(scores, (list, tuple)):
+            scores = list(scores)
 
         # 添加rerank分数到结果
         for doc, score in zip(documents, scores):
-            doc["rerank_score"] = score
+            doc["rerank_score"] = float(score)
 
         # 按rerank分数排序（分数越高越好）
         reranked = sorted(

@@ -3,6 +3,7 @@ Milvus向量数据库客户端
 支持Collection管理、向量索引、数据CRUD操作
 """
 import asyncio
+import json
 from typing import List, Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
 

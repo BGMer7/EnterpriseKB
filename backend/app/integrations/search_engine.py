@@ -7,6 +7,8 @@ import json
 
 import meilisearch
 
+from app.config import settings
+
 
 class MeilisearchClientWrapper:
     """
@@ -42,7 +44,7 @@ class MeilisearchClientWrapper:
             self.connect()
         return self._client
 
-    async def check_health(self) -> str:
+    def check_health(self) -> str:
         """
         检查Meilisearch健康状态
         """
@@ -89,7 +91,7 @@ class MeilisearchClientWrapper:
         """
         配置Index设置
         """
-        index = client.index(self.index_name)
+        index = self.client.index(self.index_name)
 
         # 设置可搜索字段
         index.update_searchable_attributes([
@@ -167,7 +169,7 @@ class MeilisearchClientWrapper:
             print(f"Failed to drop index: {e}")
             return False
 
-    def get_index(self) -> meilisearch.Index:
+    def get_index(self):
         """
         获取Index对象
 
@@ -293,12 +295,25 @@ class MeilisearchClientWrapper:
             ]
 
         # 执行检索
-        results = index.search(
-            query,
-            limit=limit,
-            filter=filter_expression,
-            attributes_to_retrieve=output_fields
-        )
+        # 新版meilisearch使用链式API
+        search_query = index.search(query)
+
+        # 设置limit
+        search_query.set_limit(limit)
+
+        # 添加过滤条件（如果提供）
+        if filter_expression:
+            search_query.set_filter(filter_expression)
+
+        try:
+            results = search_query.execute()
+        except (AttributeError, TypeError):
+            # 旧版API兼容：直接传递参数
+            results = index.search(
+                query,
+                limit=limit,
+                filter=filter_expression if filter_expression else None
+            )
 
         # 格式化结果
         formatted_results = []

@@ -2,13 +2,29 @@
 Embedding模型管理
 支持BGE-M3等中文embedding模型
 支持多模态embedding（图像+文本）
+支持云端Embedding（OpenAI、Cohere等）
 """
 from typing import List, Union, Optional
 import torch
-from sentence_transformers import SentenceTransformer
-from FlagEmbedding import BGEM3FlagModel
 
 from app.config import settings
+
+# 优先使用sentence-transformers（更稳定）
+# 如果需要使用FlagEmbedding的特殊功能，可以切换
+SENTENCE_TRANSFORMERS_AVAILABLE = False
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SentenceTransformer = None
+
+# 尝试导入FlagEmbedding（可选，用于高级功能）
+FLAG_EMBEDDING_AVAILABLE = False
+try:
+    from FlagEmbedding import BGEM3FlagModel
+    FLAG_EMBEDDING_AVAILABLE = True
+except ImportError:
+    BGEM3FlagModel = None
 
 # 可选的图像embedding支持
 try:
@@ -78,6 +94,7 @@ class BGEModel(EmbeddingModel):
     """
     BGE系列Embedding模型
     支持BGE-M3等多语言模型
+    使用sentence-transformers作为后端（更稳定）
     """
 
     def __init__(
@@ -92,18 +109,24 @@ class BGEModel(EmbeddingModel):
 
     def _load_model(self):
         """加载模型"""
-        if "bge-m3" in self.model_name.lower():
-            # 使用BGE-M3
-            self._model = BGEM3FlagModel(
-                self.model_name,
-                use_fp16=self.use_fp16
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            raise ImportError(
+                "sentence-transformers not installed. "
+                "Install with: pip install sentence-transformers"
             )
-        else:
-            # 使用通用SentenceTransformer
-            self._model = SentenceTransformer(
-                self.model_name,
-                device=self.device
-            )
+
+        # 检测可用设备
+        import torch
+        if self.device == "cuda" and not torch.cuda.is_available():
+            print(f"Warning: CUDA not available, using CPU instead")
+            self.device = "cpu"
+
+        # 使用sentence-transformers加载所有模型（包括BGE-M3）
+        # BGE-M3在sentence-transformers中会自动使用正确的后端
+        self._model = SentenceTransformer(
+            self.model_name,
+            device=self.device
+        )
 
     def encode(
         self,
@@ -123,21 +146,14 @@ class BGEModel(EmbeddingModel):
         if isinstance(texts, str):
             texts = [texts]
 
-        # BGE-M3特殊处理
-        if "bge-m3" in self.model_name.lower():
-            embeddings = self._model.encode(
-                texts,
-                batch_size=batch_size,
-                return_dense=True
-            )["dense_vecs"]
-            return torch.tensor(embeddings)
-        else:
-            embeddings = self._model.encode(
-                texts,
-                batch_size=batch_size,
-                show_progress_bar=False
-            )
-            return torch.tensor(embeddings)
+        # sentence-transformers统一接口
+        embeddings = self._model.encode(
+            texts,
+            batch_size=batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True
+        )
+        return torch.tensor(embeddings)
 
     def encode_queries(
         self,
@@ -145,33 +161,27 @@ class BGEModel(EmbeddingModel):
         batch_size: int = 32
     ) -> torch.Tensor:
         """
-        编码查询（查询和文档使用不同的encode方法可以提升效果）
+        编码查询（查询和文档使用相同的encode方法）
         """
         if isinstance(queries, str):
             queries = [queries]
 
-        # BGE-M3支持查询模式
-        if "bge-m3" in self.model_name.lower():
-            embeddings = self._model.encode(
-                queries,
-                batch_size=batch_size,
-                return_dense=True
-            )["dense_vecs"]
-            return torch.tensor(embeddings)
-        else:
-            # 通用模型直接encode
-            return self.encode(queries, batch_size)
+        # sentence-transformers统一处理
+        embeddings = self._model.encode(
+            queries,
+            batch_size=batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True
+        )
+        return torch.tensor(embeddings)
 
     @property
     def dimension(self) -> int:
         """获取向量维度"""
         if self._dimension is None:
-            if "bge-m3" in self.model_name.lower():
-                self._dimension = 1024
-            else:
-                # 通用模型获取维度
-                result = self.encode(["test"])
-                self._dimension = result.shape[-1]
+            # 通过单次编码获取维度
+            result = self.encode(["test"])
+            self._dimension = result.shape[-1]
         return self._dimension
 
 

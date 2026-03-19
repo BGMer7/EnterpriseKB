@@ -74,7 +74,7 @@ class HybridRetriever(BaseRetriever):
         # 返回top_k
         return fused_results[:top_k]
 
-    def retrieve_with_permissions(
+    async def retrieve_with_permissions(
         self,
         query: str,
         department_id: Optional[str],
@@ -107,7 +107,7 @@ class HybridRetriever(BaseRetriever):
         )
 
         # 并行执行带权限过滤的检索
-        vector_results, bm25_results = asyncio.gather(
+        vector_results, bm25_results = await asyncio.gather(
             self.vector_retriever.retrieve(
                 query=query,
                 top_k=self.vector_top_k,

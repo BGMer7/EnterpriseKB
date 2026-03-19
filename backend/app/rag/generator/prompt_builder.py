@@ -3,7 +3,7 @@ Prompt构建器
 构建RAG系统的提示词
 """
 from typing import List, Dict, Any, Optional
-from .base import RetrievalResult
+from app.rag.retriever.base import RetrievalResult
 
 
 class PromptBuilder:
