@@ -1,6 +1,6 @@
 """
-vLLM客户端
-支持OpenAI兼容API和流式生成
+LLM客户端
+支持 vLLM (本地) 和 MiniMax (云端)
 """
 import json
 from typing import Optional, List, Dict, Any, AsyncGenerator
@@ -14,18 +14,22 @@ from app.config import settings
 
 class LLMClient:
     """
-    vLLM客户端包装类（OpenAI兼容API）
+    LLM客户端（支持 vLLM 和 MiniMax）
     """
 
     def __init__(
         self,
+        provider: str = None,
         api_url: str = settings.LLM_API_URL,
+        api_key: str = settings.LLM_API_KEY,
         model_name: str = settings.LLM_MODEL_NAME,
         max_tokens: int = settings.LLM_MAX_TOKENS,
         temperature: float = settings.LLM_TEMPERATURE,
         timeout: int = settings.LLM_TIMEOUT
     ):
+        self.provider = provider or settings.LLM_PROVIDER
         self.api_url = api_url
+        self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -34,12 +38,18 @@ class LLMClient:
 
     def connect(self) -> AsyncOpenAI:
         """
-        连接到vLLM服务器
+        连接到LLM服务器
         """
         if self._client is None:
+            # MiniMax 使用不同的 API 端点
+            if self.provider == "minimax":
+                base_url = "https://api.minimax.chat/v1"
+            else:
+                base_url = self.api_url
+
             self._client = AsyncOpenAI(
-                base_url=self.api_url,
-                api_key="dummy",  # vLLM不需要真实的API key
+                base_url=base_url,
+                api_key=self.api_key or "dummy",
                 timeout=self.timeout
             )
         return self._client
@@ -56,13 +66,26 @@ class LLMClient:
         检查LLM服务健康状态
         """
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(f"{self.api_url}/health")
-                if response.status_code == 200:
-                    return "healthy"
-                return f"unhealthy: status {response.status_code}"
+            # 尝试发送一个简单的测试请求来检查连接
+            test_messages = [
+                {"role": "user", "content": "hi"}
+            ]
+            await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=test_messages,
+                max_tokens=10
+            )
+            return "healthy"
         except Exception as e:
-            return f"unhealthy: {str(e)}"
+            error_msg = str(e)
+            if "401" in error_msg or "authorized" in error_msg.lower():
+                return f"unhealthy: API认证失败，请检查 API Key"
+            elif "404" in error_msg:
+                return f"unhealthy: API端点不存在"
+            elif "connection" in error_msg.lower():
+                return f"unhealthy: 连接失败"
+            else:
+                return f"unhealthy: {error_msg[:50]}"
 
     # ===== 生成方法 =====
     async def generate(

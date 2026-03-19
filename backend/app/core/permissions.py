@@ -2,9 +2,11 @@
 权限检查模块
 实现RBAC权限控制
 """
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Any
 
-from app.models.user import User
+# 使用 Any 代替 User，避免触发数据库关系问题
+User = Any
+
 from app.core.constants import Permissions, ROLE_PERMISSIONS
 
 
@@ -124,7 +126,7 @@ def is_content_editor(user: User) -> bool:
     return any(role.name == "CONTENT_EDITOR" for role in user.roles)
 
 
-def get_user_role_names(user: User) -> List[str]:
+def get_user_role_names(user) -> List[str]:
     """
     获取用户角色名称列表
 
@@ -134,6 +136,9 @@ def get_user_role_names(user: User) -> List[str]:
     Returns:
         List[str]: 角色名称列表
     """
+    # 安全处理：兼容没有 roles 属性的对象
+    if not hasattr(user, 'roles') or not user.roles:
+        return []
     return [role.name for role in user.roles]
 
 

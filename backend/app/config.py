@@ -79,12 +79,15 @@ class Settings(BaseSettings):
     MEILISEARCH_INDEX_NAME: str = "documents_bm25"
     MEILISEARCH_API_KEY: str = ""
 
-    # ===== LLM配置 (vLLM) =====
-    LLM_API_URL: str = "http://localhost:8000/v1"
-    LLM_MODEL_NAME: str = "Qwen/Qwen2.5-14B-Instruct"
+    # ===== LLM配置 =====
+    # 支持 vLLM (本地) 或 MiniMax (云端)
+    LLM_PROVIDER: str = "minimax"  # "vllm" 或 "minimax"
+    LLM_API_URL: str = "https://api.minimax.chat/v1"
+    LLM_API_KEY: str = ""  # MiniMax API Key
+    LLM_MODEL_NAME: str = "abab6.5s-chat"  # MiniMax 模型名
     LLM_MAX_TOKENS: int = 2000
     LLM_TEMPERATURE: float = 0.1
-    LLM_TIMEOUT: int = 60  # 秒
+    LLM_TIMEOUT: int = 120  # 秒
 
     # ===== Embedding配置 =====
     EMBEDDING_MODEL: str = "BAAI/bge-m3"
