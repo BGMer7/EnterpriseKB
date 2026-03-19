@@ -1,6 +1,7 @@
 """
 用户角色关联表
 """
+from typing import Optional
 from uuid import UUID, uuid4
 from datetime import datetime
 

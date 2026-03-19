@@ -5,7 +5,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from sqlalchemy import String, ForeignKey, Integer, JSON, INET
+from sqlalchemy import String, ForeignKey, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -36,7 +36,7 @@ class AuditLog(Base, TimestampMixin):
         String(36),
         nullable=True
     )
-    ip_address: Mapped[Optional[str]] = mapped_column(INET, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     request_data: Mapped[Optional[dict]] = mapped_column(
         JSON,

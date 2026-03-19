@@ -56,7 +56,8 @@ class User(Base, TimestampMixin):
     roles: Mapped[list["Role"]] = relationship(
         "Role",
         secondary="user_roles",
-        backref="users"
+        backref="users",
+        foreign_keys="UserRole.user_id"
     )
     conversations: Mapped[list["Conversation"]] = relationship(
         "Conversation",
