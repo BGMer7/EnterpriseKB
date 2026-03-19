@@ -47,8 +47,14 @@ class Settings(BaseSettings):
     REDIS_CACHE_TTL: int = 3600  # 1小时
 
     # ===== Milvus配置 =====
+    # 本地 Milvus
     MILVUS_HOST: str = "localhost"
     MILVUS_PORT: int = 19530
+    # Zilliz Cloud (云端 Milvus)
+    MILVUS_CLOUD_URI: str = ""  # 如: https://xxxxx.api.zillizcloud.com
+    MILVUS_CLOUD_USER: str = ""  # 集群 ID
+    MILVUS_CLOUD_PASSWORD: str = ""  # Zilliz Cloud 密码
+    # 通用配置
     MILVUS_COLLECTION_NAME: str = "enterprise_documents"
     MILVUS_DIMENSION: int = 1024  # BGE-M3 embedding维度
 

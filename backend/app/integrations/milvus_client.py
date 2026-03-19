@@ -8,10 +8,9 @@ from contextlib import asynccontextmanager
 
 from pymilvus import (
     Collection, FieldSchema, CollectionSchema, DataType,
-    utility, connections, AnnSearchResult, SearchResult
+    connections
 )
 from pymilvus import MilvusClient
-from pymilvus.client.types import IndexType, MetricType
 
 from app.config import settings
 from app.core.constants import Permissions
@@ -21,6 +20,7 @@ from app.core.permissions import get_user_role_names
 class MilvusClientWrapper:
     """
     Milvus客户端包装类
+    支持本地 Milvus 和 Zilliz Cloud 云端连接
     """
 
     def __init__(
@@ -28,25 +28,41 @@ class MilvusClientWrapper:
         host: str = settings.MILVUS_HOST,
         port: int = settings.MILVUS_PORT,
         collection_name: str = settings.MILVUS_COLLECTION_NAME,
-        dimension: int = settings.MILVUS_DIMENSION
+        dimension: int = settings.MILVUS_DIMENSION,
+        cloud_uri: str = settings.MILVUS_CLOUD_URI,
+        cloud_user: str = settings.MILVUS_CLOUD_USER,
+        cloud_password: str = settings.MILVUS_CLOUD_PASSWORD
     ):
         self.host = host
         self.port = port
         self.collection_name = collection_name
         self.dimension = dimension
+        self.cloud_uri = cloud_uri
+        self.cloud_user = cloud_user
+        self.cloud_password = cloud_password
         self._client = None
         self._collection = None
+        self._is_cloud = bool(cloud_uri and cloud_user and cloud_password)
 
     def connect(self) -> MilvusClient:
         """
         连接到Milvus服务器
+        支持本地连接和 Zilliz Cloud 云端连接
         """
         if self._client is None:
-            self._client = MilvusClient(
-                host=self.host,
-                port=self.port,
-                alias="default"
-            )
+            if self._is_cloud:
+                # Zilliz Cloud 云端连接 (使用 Token)
+                self._client = MilvusClient(
+                    uri=self.cloud_uri,
+                    token=self.cloud_password  # 直接使用 Token
+                )
+            else:
+                # 本地 Milvus 连接
+                self._client = MilvusClient(
+                    host=self.host,
+                    port=self.port,
+                    alias="default"
+                )
         return self._client
 
     def disconnect(self):
