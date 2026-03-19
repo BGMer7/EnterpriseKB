@@ -7,7 +7,8 @@ import sys
 import io
 
 # 设置stdout编码为utf-8，避免emoji打印问题
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+# line_buffering=True 禁用缓冲，确保输出立即显示
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -227,9 +228,11 @@ def test_6_hybrid_retrieval(chunks, embeddings):
         milvus_data = []
         search_data = []
 
-        for idx, (chunk_data, embedding) in enumerate(zip(chunks, embeddings.tolist())):
+        # 兼容 numpy array 和 list
+        embedding_list = embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
+        for idx, (chunk_data, embedding) in enumerate(zip(chunks, embedding_list)):
             milvus_data.append({
-                "chunk_id": chunk_data["id"],
+                "chunk_id": chunk_data["chunk_id"],
                 "document_id": document_id,
                 "content": chunk_data["content"],
                 "title": "测试文档",
@@ -240,11 +243,10 @@ def test_6_hybrid_retrieval(chunks, embeddings):
                 "section": chunk_data.get("section"),
                 "chunk_index": chunk_data["chunk_index"],
                 "embedding": embedding,
-                "created_at": 0,
             })
 
             search_data.append({
-                "chunk_id": chunk_data["id"],
+                "chunk_id": chunk_data["chunk_id"],
                 "document_id": document_id,
                 "content": chunk_data["content"],
                 "title": "测试文档",

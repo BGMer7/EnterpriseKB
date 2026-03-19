@@ -18,11 +18,11 @@ class MeilisearchClientWrapper:
     def __init__(
         self,
         url: str = settings.MEILISEARCH_URL,
-        api_key: str = settings.MEILISEARCH_API_KEY,
+        api_key: str = settings.MEILISEARCH_API_KEY or None,
         index_name: str = settings.MEILISEARCH_INDEX_NAME
     ):
         self.url = url
-        self.api_key = api_key
+        self.api_key = api_key or None
         self.index_name = index_name
         self._client = None
 
@@ -46,10 +46,18 @@ class MeilisearchClientWrapper:
 
     def check_health(self) -> str:
         """
-        检查Meilisearch健康状态
+        检查Meilisearch健康状态，并自动创建Index
         """
         try:
             self.client.get_indexes()
+
+            # 自动创建Index（如果不存在）
+            try:
+                self.client.get_index(self.index_name)
+            except Exception:
+                # Index不存在，创建它
+                self.client.create_index(self.index_name, {"primaryKey": "chunk_id"})
+
             return "healthy"
         except Exception as e:
             return f"unhealthy: {str(e)}"
@@ -250,8 +258,7 @@ class MeilisearchClientWrapper:
         # 搜索获取要删除的文档ID
         results = index.search(
             "",
-            filter=f'document_id = "{document_id}"',
-            limit=10000  # 假设一个文档最多1万个chunk
+            {"filter": f'document_id = "{document_id}"', "limit": 10000}
         )
 
         if not results["hits"]:
@@ -294,32 +301,22 @@ class MeilisearchClientWrapper:
                 "page_number", "section", "chunk_index"
             ]
 
-        # 执行检索
-        # 新版meilisearch使用链式API
-        search_query = index.search(query)
-
-        # 设置limit
-        search_query.set_limit(limit)
-
-        # 添加过滤条件（如果提供）
-        if filter_expression:
-            search_query.set_filter(filter_expression)
-
-        try:
-            results = search_query.execute()
-        except (AttributeError, TypeError):
-            # 旧版API兼容：直接传递参数
-            results = index.search(
-                query,
-                limit=limit,
-                filter=filter_expression if filter_expression else None
-            )
+        # 执行检索 - 直接传递参数
+        results = index.search(
+            query,
+            {"limit": limit}
+        )
 
         # 格式化结果
         formatted_results = []
         for hit in results["hits"]:
-            # 转换BM25分数为相似度分数（Meilisearch的_rankingScore是越高越好）
-            similarity_score = 1.0 - (min(hit["_rankingScore"], 1000) / 1000)
+            # 获取BM25分数，新版Meilisearch返回格式可能不同
+            ranking_score = hit.get("_rankingScore", hit.get("_ BM25_1.2.3", 1.0))
+            # 如果没有分数，使用默认分数
+            if ranking_score is None:
+                ranking_score = 1.0
+            # 转换BM25分数为相似度分数（越高越好）
+            similarity_score = 1.0 - (min(float(ranking_score), 1000) / 1000) if ranking_score else 0.5
 
             formatted_results.append({
                 "id": hit["chunk_id"],

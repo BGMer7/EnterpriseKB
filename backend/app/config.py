@@ -2,16 +2,32 @@
 EnterpriseKB 配置管理
 使用 pydantic-settings 进行配置管理
 """
+import os
 from functools import lru_cache
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def get_env_file() -> str:
+    """获取.env文件路径，优先从项目根目录查找"""
+    # 从当前文件位置向上查找
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # backend/app/config.py -> backend/.env -> .env
+    for search_path in [
+        os.path.join(current_dir, "..", "..", ".env"),
+        os.path.join(current_dir, "..", ".env"),
+        os.path.join(current_dir, ".env"),
+    ]:
+        if os.path.exists(search_path):
+            return search_path
+    return ".env"
 
 
 class Settings(BaseSettings):
     """应用配置"""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=get_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore"

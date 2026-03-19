@@ -11,6 +11,7 @@ from pymilvus import (
     Collection, FieldSchema, CollectionSchema, DataType,
     connections
 )
+from pymilvus.milvus_client.index import IndexParams
 from pymilvus import MilvusClient
 
 from app.config import settings
@@ -214,17 +215,18 @@ class MilvusClientWrapper:
         )
 
         # 创建向量索引
-        index_params = {
-            "index_type": "HNSW",
-            "metric_type": "COSINE",
-            "params": {
+        index_params = IndexParams()
+        index_params.add_index(
+            field_name="embedding",
+            index_type="HNSW",
+            metric_type="COSINE",
+            params={
                 "M": 16,
                 "efConstruction": 100
             }
-        }
+        )
         client.create_index(
             collection_name=self.collection_name,
-            field_name="embedding",
             index_params=index_params
         )
 

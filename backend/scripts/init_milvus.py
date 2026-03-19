@@ -3,7 +3,7 @@ Milvus Collection 初始化脚本
 用于全新的 Milvus 集群创建 Collection 和索引
 """
 import sys
-sys.path.insert(0, 'd:/Learning/EnterpriseKB/backend')
+sys.path.insert(0, 'd:/Learning/Projects/EnterpriseKB/backend')
 
 from app.integrations.milvus_client import get_milvus_client
 
