@@ -151,25 +151,25 @@ def add_exception_handlers(app: FastAPI) -> None:
             }
         )
 
-    @app.exception_handler(SQLAlchemyError)
-    async def database_error_handler(request: Request, exc: SQLAlchemyError):
-        """处理数据库错误"""
-        logger.error(
-            f"DatabaseError: {str(exc)} | "
-            f"{request.method} {request.url.path}",
-            exc_info=True
-        )
-
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "success": False,
-                "error": {
-                    "code": "DATABASE_ERROR",
-                    "message": "数据库操作失败"
-                }
-            }
-        )
+    # @app.exception_handler(SQLAlchemyError)
+    # async def database_error_handler(request: Request, exc: SQLAlchemyError):
+    #     """处理数据库错误"""
+    #     logger.error(
+    #         f"DatabaseError: {str(exc)} | "
+    #         f"{request.method} {request.url.path}",
+    #         exc_info=True
+    #     )
+    #
+    #     return JSONResponse(
+    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #         content={
+    #             "success": False,
+    #             "error": {
+    #                 "code": "DATABASE_ERROR",
+    #                 "message": "数据库操作失败"
+    #             }
+    #         }
+    #     )
 
     @app.exception_handler(Exception)
     async def general_error_handler(request: Request, exc: Exception):
@@ -180,9 +180,9 @@ def add_exception_handlers(app: FastAPI) -> None:
             exc_info=True
         )
 
-        # 生产环境不暴露详细错误信息
-        from app.config import settings
-        error_message = "服务器内部错误" if not settings.DEBUG else str(exc)
+        # 总是显示详细错误信息用于调试
+        import traceback
+        error_message = f"{str(exc)}\n{traceback.format_exc()}"
 
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
