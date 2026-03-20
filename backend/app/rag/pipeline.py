@@ -1,6 +1,7 @@
 """
 RAG Pipeline主流程
 整合检索、重排序、LLM生成等模块
+支持多provider切换 (custom/langchain/llamaindex/milvus)
 """
 import json
 from typing import List, Dict, Any, Optional, AsyncGenerator
@@ -17,6 +18,10 @@ from app.integrations.milvus_client import get_milvus_client
 from app.integrations.llm_server import get_llm_client
 from app.config import settings
 from app.core.permissions import get_user_role_names
+
+# 新增：导入 factory
+from .retriever.factory import create_retriever
+from .providers import RAGProviderType
 
 
 class RAGResult(BaseModel):
@@ -36,6 +41,7 @@ class RAGPipeline:
     """
     RAG Pipeline
     整合向量检索、BM25检索、重排序、LLM生成等模块
+    支持多provider切换
     """
 
     def __init__(
@@ -44,6 +50,8 @@ class RAGPipeline:
         search_client=None,
         llm_client=None,
         reranker=None,
+        retriever=None,  # 新增：直接注入retriever
+        provider: str = None,  # 新增：选择provider
         top_k: int = settings.RAG_TOP_K,
         reranker_top_k: int = settings.RERANKER_TOP_K,
         min_score: float = settings.RAG_MIN_SCORE,
@@ -58,13 +66,22 @@ class RAGPipeline:
         self.reranker_top_k = reranker_top_k
         self.min_score = min_score
         self.max_context_tokens = max_context_tokens
+        self.provider = provider  # 记录当前使用的provider
 
-        # 初始化检索器
-        self.hybrid_retriever = HybridRetriever(
-            vector_top_k=top_k * 2,  # 获取更多候选用于rerank
-            bm25_top_k=top_k * 2,
-            fusion_k=settings.RAG_FUSION_K
-        )
+        # 初始化检索器：retriever > provider > default
+        if retriever is not None:
+            # 直接注入retriever
+            self.hybrid_retriever = retriever
+        elif provider is not None:
+            # 通过provider创建
+            self.hybrid_retriever = create_retriever(provider=provider, top_k=top_k * 2)
+        else:
+            # 默认使用 custom provider (HybridRetriever)
+            self.hybrid_retriever = HybridRetriever(
+                vector_top_k=top_k * 2,
+                bm25_top_k=top_k * 2,
+                fusion_k=settings.RAG_FUSION_K
+            )
 
     async def query(
         self,
