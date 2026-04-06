@@ -5,16 +5,20 @@ RAGAS评估器
 import os
 import json
 import logging
-from typing import List, Optional, Dict, Any
+import asyncio
+from typing import List, Optional, Dict, Any, Callable
 from datetime import datetime
 
 from .models import EvaluationSample, EvaluationResult, EvaluationMetrics, EvaluationDataset
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 # 尝试导入RAGAS
 try:
     from ragas import evaluate
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.metrics import (
         faithfulness,
         answer_relevancy,
@@ -22,9 +26,18 @@ try:
         context_recall
     )
     from datasets import Dataset
+
+    # 尝试导入 LangChain OpenAI
+    try:
+        from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+        LANGCHAIN_AVAILABLE = True
+    except ImportError:
+        LANGCHAIN_AVAILABLE = False
+
     RAGAS_AVAILABLE = True
 except ImportError:
     RAGAS_AVAILABLE = False
+    LANGCHAIN_AVAILABLE = False
     logger.warning("RAGAS not installed. Run: pip install ragas")
 
 
@@ -34,19 +47,61 @@ class RAGEvaluator:
     基于RAGAS框架进行RAG系统评估
     """
 
-    def __init__(self, llm_model: Optional[str] = None, embeddings_model: Optional[str] = None):
+    def __init__(
+        self,
+        llm_model: Optional[str] = None,
+        llm_api_url: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
+        embeddings_model: Optional[str] = None
+    ):
         """
         初始化评估器
 
         Args:
-            llm_model: LLM模型名称，用于评估
-            embeddings_model: Embeddings模型名称
+            llm_model: LLM模型名称，用于评估（默认从 settings 获取）
+            llm_api_url: LLM API 地址（默认从 settings 获取）
+            llm_api_key: LLM API Key（默认从 settings 获取）
+            embeddings_model: Embeddings模型名称（默认使用项目的 embedding 模型）
         """
-        self.llm_model = llm_model or os.getenv("LLM_MODEL", "gpt-3.5-turbo")
-        self.embeddings_model = embeddings_model or os.getenv("EMBEDDINGS_MODEL", "text-embedding-ada-002")
+        # 优先使用传入的参数，否则从 settings 获取
+        self.llm_model = llm_model or settings.LLM_MODEL_NAME
+        self.llm_api_url = llm_api_url or settings.LLM_API_URL
+        self.llm_api_key = llm_api_key or settings.LLM_API_KEY
+        self.embeddings_model = embeddings_model or "BAAI/bge-m3"
+
+        self._llm = None
+        self._embeddings = None
 
         if not RAGAS_AVAILABLE:
             logger.warning("RAGAS is not available. Please install it with: pip install ragas")
+        if not LANGCHAIN_AVAILABLE:
+            logger.warning("LangChain OpenAI not available. Please install it with: pip install langchain-openai")
+
+    def _get_llm(self):
+        """获取 LangChain LLM 实例"""
+        if self._llm is None and LANGCHAIN_AVAILABLE:
+            self._llm = ChatOpenAI(
+                model=self.llm_model,
+                base_url=self.llm_api_url,
+                api_key=self.llm_api_key or "dummy",
+                temperature=0
+            )
+        return self._llm
+
+    def _get_embeddings(self):
+        """获取 LangChain Embeddings 实例"""
+        if self._embeddings is None and LANGCHAIN_AVAILABLE:
+            # 使用本地 embedding 模型
+            try:
+                from langchain_huggingface import HuggingFaceEmbeddings
+                self._embeddings = HuggingFaceEmbeddings(
+                    model_name=self.embeddings_model,
+                    model_kwargs={'device': 'cpu'}
+                )
+            except ImportError:
+                # 回退到 OpenAI Embeddings
+                self._embeddings = OpenAIEmbeddings(api_key=self.llm_api_key or "dummy")
+        return self._embeddings
 
     def prepare_dataset(self, samples: List[EvaluationSample]) -> Optional["Dataset"]:
         """
@@ -115,11 +170,23 @@ class RAGEvaluator:
             # 准备数据集
             dataset = self.prepare_dataset(samples)
 
+            # 获取 LLM 和 Embeddings
+            llm = self._get_llm()
+            embeddings = self._get_embeddings()
+
+            # 构建评估参数
+            eval_kwargs = {
+                "dataset": dataset,
+                "metrics": ragas_metrics
+            }
+
+            # 如果有 LLM 和 Embeddings，则传入
+            if llm and embeddings:
+                eval_kwargs["llm"] = LangchainLLMWrapper(llm)
+                eval_kwargs["embeddings"] = LangchainEmbeddingsWrapper(embeddings)
+
             # 执行评估
-            result = evaluate(
-                dataset=dataset,
-                metrics=ragas_metrics
-            )
+            result = evaluate(**eval_kwargs)
 
             # 转换为结果格式
             return self._convert_result(result, samples)
@@ -286,3 +353,72 @@ class RAGEvaluator:
             json.dump(output, f, ensure_ascii=False, indent=2)
 
         logger.info(f"Evaluation results saved to {filepath}")
+
+    async def collect_and_evaluate(
+        self,
+        questions: List[str],
+        rag_pipeline,
+        user,
+        ground_truths: Optional[List[str]] = None,
+        metrics: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        从 RAG Pipeline 收集数据并评估
+
+        Args:
+            questions: 问题列表
+            rag_pipeline: RAGPipeline 实例
+            user: 用户对象（用于权限控制）
+            ground_truths: 标准答案列表（可选）
+            metrics: 评估指标列表
+
+        Returns:
+            评估结果
+        """
+        samples = []
+
+        for i, question in enumerate(questions):
+            # 1. 检索上下文
+            retrieval_results = await rag_pipeline._retrieve(question, user)
+            contexts = [r.content for r in retrieval_results]
+
+            # 2. 生成答案
+            rag_result = await rag_pipeline.query(question, user)
+
+            # 3. 获取 ground_truth（如果有）
+            ground_truth = ground_truths[i] if ground_truths and i < len(ground_truths) else None
+
+            samples.append(EvaluationSample(
+                question=question,
+                answer=rag_result.answer,
+                contexts=contexts,
+                ground_truth=ground_truth
+            ))
+
+        # 评估收集的样本
+        return self.evaluate_samples(samples, metrics)
+
+    def collect_and_evaluate_sync(
+        self,
+        questions: List[str],
+        rag_pipeline,
+        user,
+        ground_truths: Optional[List[str]] = None,
+        metrics: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        同步版本：从 RAG Pipeline 收集数据并评估
+
+        Args:
+            questions: 问题列表
+            rag_pipeline: RAGPipeline 实例
+            user: 用户对象
+            ground_truths: 标准答案列表（可选）
+            metrics: 评估指标列表
+
+        Returns:
+            评估结果
+        """
+        return asyncio.run(self.collect_and_evaluate(
+            questions, rag_pipeline, user, ground_truths, metrics
+        ))

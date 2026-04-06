@@ -114,7 +114,7 @@ class DocumentChunker:
                 # 保存当前chunk
                 if len(current_chunk) >= self.min_chunk_size:
                     chunks.append(Chunk(
-                        id=self._generate_id(),
+                        id=self._generate_id(document_id, chunk_index),
                         document_id=document_id,
                         content=current_chunk,
                         chunk_index=chunk_index,
@@ -134,7 +134,7 @@ class DocumentChunker:
         # 保存最后一个chunk
         if len(current_chunk) >= self.min_chunk_size:
             chunks.append(Chunk(
-                id=self._generate_id(),
+                id=self._generate_id(document_id, chunk_index),
                 document_id=document_id,
                 content=current_chunk,
                 chunk_index=chunk_index,
@@ -187,7 +187,7 @@ class DocumentChunker:
                 # 保存当前chunk
                 if len(current_chunk) >= self.min_chunk_size:
                     chunks.append(Chunk(
-                        id=self._generate_id(),
+                        id=self._generate_id(document_id, chunk_index),
                         document_id=document_id,
                         content=current_chunk,
                         chunk_index=chunk_index,
@@ -212,7 +212,7 @@ class DocumentChunker:
         # 保存最后一个chunk
         if len(current_chunk) >= self.min_chunk_size:
             chunks.append(Chunk(
-                id=self._generate_id(),
+                id=self._generate_id(document_id, chunk_index),
                 document_id=document_id,
                 content=current_chunk,
                 chunk_index=chunk_index,
@@ -258,7 +258,7 @@ class DocumentChunker:
                 # 保存上一个chunk
                 if len(current_chunk) >= self.min_chunk_size:
                     chunks.append(Chunk(
-                        id=self._generate_id(),
+                        id=self._generate_id(document_id, chunk_index),
                         document_id=document_id,
                         content=current_chunk,
                         chunk_index=chunk_index,
@@ -276,7 +276,7 @@ class DocumentChunker:
         # 保存最后一个chunk
         if len(current_chunk) >= self.min_chunk_size:
             chunks.append(Chunk(
-                id=self._generate_id(),
+                id=self._generate_id(document_id, chunk_index),
                 document_id=document_id,
                 content=current_chunk,
                 chunk_index=chunk_index,
@@ -323,7 +323,7 @@ class DocumentChunker:
             if current_tokens + sentence_tokens > self.chunk_size:
                 if len(current_chunk) >= self.min_chunk_size:
                     chunks.append(Chunk(
-                        id=self._generate_id(),
+                        id=self._generate_id(document_id, start_index),
                         document_id=document_id,
                         content=current_chunk,
                         chunk_index=start_index,
@@ -341,7 +341,7 @@ class DocumentChunker:
 
         if len(current_chunk) >= self.min_chunk_size:
             chunks.append(Chunk(
-                id=self._generate_id(),
+                id=self._generate_id(document_id, start_index),
                 document_id=document_id,
                 content=current_chunk,
                 chunk_index=start_index,
@@ -404,8 +404,11 @@ class DocumentChunker:
         """
         return self._get_page_for_chunk(content, pages)
 
-    def _generate_id(self) -> str:
-        """生成唯一ID"""
+    def _generate_id(self, document_id: str = None, chunk_index: int = None) -> str:
+        """生成chunk ID，格式为 {document_id}_chunk_{chunk_index}"""
+        if document_id is not None and chunk_index is not None:
+            return f"{document_id}_chunk_{chunk_index}"
+        # Fallback to UUID if document_id or chunk_index not provided
         import uuid
         return str(uuid.uuid4())
 
