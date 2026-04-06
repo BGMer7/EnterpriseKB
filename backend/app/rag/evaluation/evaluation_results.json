@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-03-21T17:45:38.868351",
+  "metrics": {
+    "total_samples": 3,
+    "avg_faithfulness": NaN,
+    "avg_answer_relevancy": 0.8696587801053671,
+    "avg_context_precision": 0.9999999999,
+    "avg_context_recall": 1.0,
+    "avg_retrieval_score": null,
+    "samples_with_context": 3,
+    "samples_without_context": 0
+  },
+  "samples": [
+    {
+      "question": "公司年假是怎么计算的？",
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "faithfulness": NaN,
+      "answer_relevancy": 0.9162553172290774,
+      "avg_retrieval_score": null,
+      "retrieval_count": 2
+    },
+    {
+      "question": "报销流程需要多长时间？",
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.9540532695900226,
+      "avg_retrieval_score": null,
+      "retrieval_count": 1
+    },
+    {
+      "question": "加班工资如何计算？",
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.7386677534970012,
+      "avg_retrieval_score": null,
+      "retrieval_count": 1
+    }
+  ]
+}

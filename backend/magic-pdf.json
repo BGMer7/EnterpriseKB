@@ -1,0 +1,21 @@
+{
+  "bucket_info": {
+    "[default]": [
+      null,
+      null,
+      null
+    ]
+  },
+  "models-dir": "./models/magic-pdf",
+  "temp_dir": "./tmp/magic-pdf",
+  "device-mode": "cuda",
+  "layout-model": "doclayout_yolo",
+  "layout-config": "doclayout_yolo",
+  "formula-enable": true,
+  "formula-config": true,
+  "table-enable": true,
+  "table-config": true,
+  "ocr-lang": [
+    "ch"
+  ]
+}
