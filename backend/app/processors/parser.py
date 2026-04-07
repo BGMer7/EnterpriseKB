@@ -808,7 +808,8 @@ class DocumentParser:
             "pages": pages,
             "metadata": {
                 "page_count": 1,
-                "format": "Markdown"
+                "format": "Markdown",
+                "file_type": "md"
             }
         }
 

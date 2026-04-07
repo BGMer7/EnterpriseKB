@@ -1,12 +1,14 @@
 """
-Ground Truth 生成脚本 V2
-从 evaluation collection 读取已有 chunks 生成问题
+Ground Truth 生成脚本 V2 (LLM版)
+从 evaluation collection 读取已有 chunks，使用 LLM 生成问题
 """
 import os
 import sys
 import json
 import random
+import asyncio
 import re
+import aiohttp
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
@@ -15,13 +17,52 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.integrations.milvus_client import MilvusClientWrapper
-from app.integrations.llm_server import get_llm_client
+from app.config import settings
 
 
 # ===== 配置 =====
 EVAL_COLLECTION_NAME = "evaluation"  # 从 evaluation collection 读取
 OUTPUT_DIR = "tests/results"
 RANDOM_SEED = 42
+
+# LLM 配置
+LLM_API_URL = settings.LLM_API_URL
+LLM_API_KEY = settings.LLM_API_KEY or "dummy"
+LLM_MODEL = settings.LLM_MODEL_NAME
+LLM_MAX_TOKENS = 2000
+LLM_TEMPERATURE = 0.7
+MAX_CONCURRENCY = 10  # 并发数
+
+
+# ===== Prompt 模板 =====
+QUESTION_GENERATION_SYSTEM_PROMPT = """你是一个专业的金融/产业研究报告分析师，专门负责生成RAG评估问题。
+
+你的任务是：
+1. 阅读提供的文档内容
+2. 生成1个高质量的评估问题
+3. 问题要能测试R系统的信息检索和理解能力
+
+生成的问题要求：
+- 基于文档中的具体数据、信息和观点
+- 不要包含任何文件名字、ID或标识符（如 H3_xxx）
+- 问题要自然、像真实用户提问
+- 问题类型可以是：数字类、时间类、对比类、趋势类等
+
+输出格式：JSON数组，只包含1个问题字符串
+例如：["2026年3月焦煤价格相比2月上涨了多少？"]"""
+
+QUESTION_GENERATION_USER_PROMPT = """请根据以下文档内容生成1个评估问题。
+
+要求：
+1. 问题基于文档中的具体信息
+2. 不要使用文件名、ID等标识符
+3. 问题要自然流畅
+
+---
+{content}
+---
+
+请生成1个问题，输出JSON数组："""
 
 
 def get_all_chunks_from_milvus() -> List[Dict]:
@@ -78,15 +119,15 @@ def filter_valid_chunks(chunks: List[Dict]) -> List[Dict]:
         # 过滤条件
         if len(content) < 50:  # 太短
             continue
-        if len(content) > 2000:  # 太长，截断
-            c["content"] = content[:2000]
+        if len(content) > 3000:  # 太长，截断
+            c["content"] = content[:3000]
         valid.append(c)
 
     print(f"\n[过滤] 有效 chunks: {len(valid)} / {len(chunks)}")
     return valid
 
 
-def deduplicate_chunks(chunks: List[Dict], similarity_threshold: float = 0.8) -> List[Dict]:
+def deduplicate_chunks(chunks: List[Dict]) -> List[Dict]:
     """简单去重：基于内容相似度"""
     # 简化：按 document_id 分组，每组最多选 N 个
     by_doc = {}
@@ -112,96 +153,135 @@ def deduplicate_chunks(chunks: List[Dict], similarity_threshold: float = 0.8) ->
     return selected
 
 
-def generate_questions_from_chunks(
-    chunks: List[Dict],
-    questions_per_chunk: int = 2,
-    use_llm: bool = False
-) -> List[Dict]:
-    """为每个 chunk 生成问题"""
-    print(f"\n[生成] 为 {len(chunks)} 个 chunks 生成问题...")
+async def call_llm_async(
+    session: aiohttp.ClientSession,
+    content: str,
+    retry_count: int = 3
+) -> List[str]:
+    """异步调用 LLM 生成问题"""
+    user_prompt = QUESTION_GENERATION_USER_PROMPT.format(content=content)
 
-    random.seed(RANDOM_SEED)
+    payload = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": QUESTION_GENERATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ],
+        "max_tokens": LLM_MAX_TOKENS,
+        "temperature": LLM_TEMPERATURE,
+        "response_format": {"type": "json_object"}
+    }
+
+    headers = {
+        "Authorization": f"Bearer {LLM_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    for attempt in range(retry_count):
+        try:
+            async with session.post(
+                f"{LLM_API_URL}/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    text = result["choices"][0]["message"]["content"]
+
+                    # 解析 JSON 数组
+                    try:
+                        questions = json.loads(text)
+                        if isinstance(questions, list):
+                            return [q for q in questions if isinstance(q, str) and len(q) > 0]
+                    except json.JSONDecodeError:
+                        # 尝试从文本中提取 JSON
+                        match = re.search(r'\[.*\]', text, re.DOTALL)
+                        if match:
+                            questions = json.loads(match.group())
+                            if isinstance(questions, list):
+                                return [q for q in questions if isinstance(q, str) and len(q) > 0]
+
+                    print(f"    ⚠️ 解析失败，使用默认问题")
+                    return ["请介绍文档中的关键信息。"]
+
+                elif resp.status == 429:
+                    # Rate limit，等待后重试
+                    await asyncio.sleep(5 * (attempt + 1))
+                    continue
+                else:
+                    print(f"    ⚠️ API错误 {resp.status}")
+                    break
+
+        except asyncio.TimeoutError:
+            print(f"    ⚠️ 超时 (尝试 {attempt + 1}/{retry_count})")
+            await asyncio.sleep(2)
+        except Exception as e:
+            print(f"    ⚠️ 异常: {str(e)[:50]}")
+            break
+
+    # 失败时返回默认问题
+    return ["请介绍文档中的主要内容和数据。"]
+
+
+async def generate_questions_llm(
+    chunks: List[Dict],
+    questions_per_chunk: int = 2
+) -> List[Dict]:
+    """使用 LLM 为每个 chunk 生成问题"""
+    print(f"\n[LLM生成] 为 {len(chunks)} 个 chunks 生成问题...")
+    print(f"  并发数: {MAX_CONCURRENCY}")
 
     qa_pairs = []
+    semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
-    for i, chunk in enumerate(chunks, 1):
-        content = chunk.get("content", "")
-        title = chunk.get("title", "")
+    async def process_chunk(chunk: Dict, index: int):
+        async with semaphore:
+            content = chunk.get("content", "")[:2000]  # 限制输入长度
 
-        # 基于规则的简单问题生成
-        questions = generate_questions_rule_based(content, title, questions_per_chunk)
+            async with aiohttp.ClientSession() as session:
+                questions = await call_llm_async(session, content)
 
-        for q in questions:
-            qa_pairs.append({
-                "query_id": f"q{len(qa_pairs)+1:04d}",
-                "question": q,
-                "relevant_chunk_ids": [chunk["chunk_id"]],
-                "relevant_doc_ids": [chunk["document_id"]],
-                "ground_truth": content[:500],  # 前 500 字符作为答案
-                "metadata": {
-                    "source_chunk_id": chunk["chunk_id"],
-                    "source_title": title,
-                    "page_number": chunk.get("page_number"),
-                    "generation_method": "rule_based"
-                }
-            })
+            # 限制问题数量
+            questions = questions[:questions_per_chunk]
 
-        if i % 10 == 0 or i == len(chunks):
-            print(f"  进度: {i}/{len(chunks)} -> {len(qa_pairs)} 个问题")
+            # 如果不够，用默认值填充
+            while len(questions) < questions_per_chunk:
+                questions.append("请介绍文档中的关键信息。")
+
+            for q in questions:
+                qa_pairs.append({
+                    "query_id": f"q{len(qa_pairs)+1:04d}",
+                    "question": q,
+                    "relevant_chunk_ids": [chunk["chunk_id"]],
+                    "relevant_doc_ids": [chunk["document_id"]],
+                    "ground_truth": chunk.get("content", "")[:500],
+                    "metadata": {
+                        "source_chunk_id": chunk["chunk_id"],
+                        "source_title": chunk.get("title", ""),
+                        "page_number": chunk.get("page_number"),
+                        "generation_method": "llm"
+                    }
+                })
+
+            if (index + 1) % 10 == 0 or (index + 1) == len(chunks):
+                print(f"  进度: {index + 1}/{len(chunks)} -> {len(qa_pairs)} 个问题")
+
+    # 并发执行
+    tasks = [process_chunk(chunk, i) for i, chunk in enumerate(chunks)]
+    await asyncio.gather(*tasks)
 
     print(f"\n✓ 共生成 {len(qa_pairs)} 个问题")
     return qa_pairs
 
 
-def generate_questions_rule_based(content: str, title: str, n: int) -> List[str]:
-    """基于规则从内容生成问题"""
-    questions = []
-
-    # 提取关键句子（包含数字、百分比、年份等的句子）
-    sentences = re.split(r'[。！?!；;]', content)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 10]
-
-    # 1. 数字类问题
-    number_pattern = re.compile(r'(\d+(?:\.\d+)?)\s*(%|亿|万|元|美元|吨|人|家)')
-    for sent in sentences:
-        match = number_pattern.search(sent)
-        if match and len(questions) < n:
-            value, unit = match.groups()
-            # 生成问题
-            if unit == '%':
-                q = f"{title}的某个比例是多少？"
-            elif unit in ['亿', '万']:
-                q = f"{title}相关数据规模是多少？"
-            elif '元' in unit:
-                q = f"{title}涉及的金额是多少？"
-            else:
-                q = f"{title}相关的数量指标是多少？"
-
-            if q not in questions:
-                questions.append(q)
-
-    # 2. 时间类问题
-    time_pattern = re.compile(r'(20\d{2}[-/年]\d{1,2}|[一二三四五六七八九十]+月|Q[1-4]|第[一二三四]季度)')
-    for sent in sentences:
-        match = time_pattern.search(sent)
-        if match and len(questions) < n:
-            q = f"{title}在{match.group(1)}的情况如何？"
-            if q not in questions:
-                questions.append(q)
-
-    # 3. 如果没有提取到足够问题，生成通用问题
-    while len(questions) < n:
-        templates = [
-            f"关于{title}，有哪些关键信息？",
-            f"{title}的主要内容是什么？",
-            f"{title}涉及哪些方面？",
-            f"请介绍{title}的相关情况。",
-        ]
-        for t in templates:
-            if t not in questions and len(questions) < n:
-                questions.append(t)
-
-    return questions[:n]
+def generate_questions_from_chunks(
+    chunks: List[Dict],
+    questions_per_chunk: int = 2,
+    use_llm: bool = True
+) -> List[Dict]:
+    """为每个 chunk 生成问题（统一入口）"""
+    return asyncio.run(generate_questions_llm(chunks, questions_per_chunk))
 
 
 def split_chunk_and_answer_level(qa_pairs: List[Dict]) -> Dict:
@@ -223,8 +303,7 @@ def split_chunk_and_answer_level(qa_pairs: List[Dict]) -> Dict:
             "metadata": qa["metadata"]
         })
 
-        # Answer-level（合并相同问题的答案）
-        # 这里简化处理，每个问题对应一个答案
+        # Answer-level
         answer_level.append({
             "query_id": qa["query_id"],
             "question": qa["question"],
@@ -250,6 +329,7 @@ def save_ground_truth(data: Dict, output_path: str):
             "collection": EVAL_COLLECTION_NAME,
             "random_seed": RANDOM_SEED,
             "total_questions": len(data.get("chunk_level", [])),
+            "generation_method": "llm"
         },
         **data
     }
@@ -268,55 +348,126 @@ def main():
     """主流程"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="生成 Ground Truth 数据集 V2")
-    parser.add_argument("--questions-per-chunk", type=int, default=2,
-                        help="每个 chunk 生成几个问题")
-    parser.add_argument("--max-chunks", type=int, default=100,
-                        help="最多处理多少个 chunks")
+    parser = argparse.ArgumentParser(description="生成 Ground Truth 数据集 V2 (LLM版)")
+    parser.add_argument("--questions", type=int, default=10,
+                        help="总共生成几个问题（默认10个）")
     parser.add_argument("--output", default="tests/results/ground_truth_v2.json",
                         help="输出文件路径")
+    parser.add_argument("--concurrency", type=int, default=5,
+                        help="LLM 并发数")
+    parser.add_argument("--markdown-dir", default="src/static/miner_output",
+                        help="Markdown 文件目录")
 
     args = parser.parse_args()
 
+    global MAX_CONCURRENCY
+    MAX_CONCURRENCY = args.concurrency
+
     print("=" * 80)
-    print("Ground Truth 生成脚本 V2")
+    print("Ground Truth 生成脚本 V2 (LLM版)")
     print("=" * 80)
-    print(f"从 {EVAL_COLLECTION_NAME} collection 读取 chunks")
+    print(f"从 {args.markdown_dir} 读取 Markdown 文件")
+    print(f"使用 LLM: {LLM_MODEL}")
+    print(f"目标问题数: {args.questions}")
     print("=" * 80)
 
-    # 1. 从 Milvus 获取所有 chunks
-    chunks = get_all_chunks_from_milvus()
-    if not chunks:
+    # 1. 从本地 Markdown 文件读取并分块
+    print("\n[1/4] 加载 Markdown 文件...")
+    from pathlib import Path
+    docs = {}
+    dir_path = Path(args.markdown_dir)
+    if not dir_path.exists():
+        print(f"  ❌ 目录不存在: {args.markdown_dir}")
         return
 
-    # 2. 过滤有效 chunks
-    chunks = filter_valid_chunks(chunks)
+    for md_file in dir_path.glob("*.md"):
+        try:
+            with open(md_file, "r", encoding="utf-8") as f:
+                content = f.read()
+                doc_name = md_file.stem.replace("MinerU_markdown_", "")
+                docs[doc_name] = {"title": doc_name, "content": content}
+                print(f"  ✓ 加载: {md_file.name} ({len(content)} 字符)")
+        except Exception as e:
+            print(f"  ✗ 加载失败 {md_file.name}: {e}")
 
-    # 3. 去重采样
-    chunks = deduplicate_chunks(chunks)
+    print(f"\n📚 总计加载: {len(docs)} 个文档")
 
-    # 4. 限制数量
-    if len(chunks) > args.max_chunks:
-        random.seed(RANDOM_SEED)
-        chunks = random.sample(chunks, args.max_chunks)
-        print(f"\n[采样] 随机选取 {len(chunks)} 个 chunks")
+    # 2. 使用 Markdown 分块
+    print("\n[2/4] 使用 Markdown 结构化分块...")
+    from app.processors.chunker import chunk_by_strategy
 
-    # 5. 生成问题
+    doc_chunks = {}  # 按文档存储 chunks
+    all_chunks = []
+
+    for doc_id, doc_info in docs.items():
+        chunks = chunk_by_strategy(
+            document_id=doc_id,
+            content=doc_info["content"],
+            pages=[{"page_number": 1, "content": doc_info["content"]}],
+            strategy="markdown",
+            chunk_size=512,
+            chunk_overlap=64
+        )
+
+        # 过滤太短的 chunk
+        valid_chunks = [c for c in chunks if len(c.get("content", "")) >= 100]
+        doc_chunks[doc_id] = valid_chunks
+
+        for chunk in valid_chunks:
+            chunk["title"] = doc_info["title"]
+            all_chunks.append(chunk)
+
+        print(f"  - {doc_id}: {len(valid_chunks)}/{len(chunks)} chunks")
+
+    print(f"\n📦 总计 chunks: {len(all_chunks)}")
+
+    # 3. 分文档采样 - 每个文档随机选 1-2 个有代表性的 chunk
+    print("\n[3/4] 分文档采样...")
+
+    # 按内容长度排序，每个文档选择内容较丰富的 chunk
+    sampled_chunks = []
+    chunks_per_doc = max(1, args.questions // len(docs))  # 每个文档分配几个
+
+    for doc_id, chunks in doc_chunks.items():
+        if not chunks:
+            continue
+
+        # 按内容长度降序，选择内容较丰富的
+        sorted_chunks = sorted(chunks, key=lambda x: len(x.get("content", "")), reverse=True)
+
+        # 选择前 N 个（内容最丰富的）
+        selected = sorted_chunks[:chunks_per_doc]
+        sampled_chunks.extend(selected)
+        print(f"  - {doc_id}: 选取 {len(selected)} 个")
+
+    # 如果还不够，随机补充
+    remaining = args.questions - len(sampled_chunks)
+    if remaining > 0:
+        unsampled = [c for c in all_chunks if c not in sampled_chunks]
+        if unsampled:
+            random.seed(RANDOM_SEED)
+            additional = random.sample(unsampled, min(remaining, len(unsampled)))
+            sampled_chunks.extend(additional)
+            print(f"  - 补充: {len(additional)} 个")
+
+    print(f"\n[采样] 共选取 {len(sampled_chunks)} 个 chunks 用于生成问题")
+
+    # 4. 使用 LLM 生成问题
     qa_pairs = generate_questions_from_chunks(
-        chunks,
-        questions_per_chunk=args.questions_per_chunk
+        sampled_chunks,
+        questions_per_chunk=1
     )
 
-    # 6. 拆分 level
+    # 5. 拆分 level
     data = split_chunk_and_answer_level(qa_pairs)
 
-    # 7. 保存
+    # 6. 保存
     save_ground_truth(data, args.output)
 
     print("\n" + "=" * 80)
     print("✅ 完成！")
     print("=" * 80)
-    print(f"\n生成的 Ground Truth 与 evaluation collection 完全一致")
+    print(f"\n使用 LLM 生成的问题已保存到 {args.output}")
     print(f"可以直接用于 test_recall_v2.py 进行评估")
 
 

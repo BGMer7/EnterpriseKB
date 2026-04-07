@@ -25,13 +25,13 @@ from app.rag.retriever.vector_retriever import VectorRetriever
 from app.rag.retriever.bm25_retriever import BM25Retriever
 from app.rag.retriever.hybrid_retriever import HybridRetriever
 from app.rag.embedding import encode_text, encode_query
-from app.processors.chunker import DocumentChunker
+from app.processors.chunker import chunk_by_strategy
 
 
 # ===== 配置 =====
 EVAL_COLLECTION_NAME = "evaluation"  # 独立的 evaluation collection
 MARKDOWN_DIR = "src/static/miner_output"
-GROUND_TRUTH_PATH = "tests/ground_truth/ground_truth_auto_dataset.json"
+GROUND_TRUTH_PATH = "tests/results/ground_truth_v2.json"
 
 
 @dataclass
@@ -68,29 +68,32 @@ def load_markdown_files(directory: str) -> Dict[str, tuple]:
 
 
 def chunk_documents(docs: Dict[str, tuple]) -> List[Dict]:
-    """使用真实 DocumentChunker 分块"""
-    print("\n[分块] 使用 DocumentChunker (semantic 策略)...")
-
-    chunker = DocumentChunker(
-        chunk_size=512,
-        chunk_overlap=50,
-        min_chunk_size=100
-    )
+    """使用 Markdown 结构化分块"""
+    print("\n[分块] 使用 Markdown 结构化分块...")
 
     all_chunks = []
     for doc_id, (title, content) in docs.items():
         pages = [{"page_number": 1, "content": content}]
-        chunks = chunker.chunk(doc_id, content, pages, strategy="semantic")
+
+        # 使用 markdown 分块策略
+        chunks = chunk_by_strategy(
+            document_id=doc_id,
+            content=content,
+            pages=pages,
+            strategy="markdown",
+            chunk_size=512,
+            chunk_overlap=64
+        )
 
         for chunk in chunks:
             all_chunks.append({
-                "chunk_id": chunk.id,
-                "document_id": chunk.document_id,
-                "content": chunk.content,
+                "chunk_id": chunk["chunk_id"],
+                "document_id": chunk["document_id"],
+                "content": chunk["content"],
                 "title": title,
-                "chunk_index": chunk.chunk_index,
-                "page_number": chunk.page_number or 1,
-                "section": chunk.section or "",
+                "chunk_index": chunk["chunk_index"],
+                "page_number": chunk.get("page_number", 1),
+                "section": chunk.get("section", ""),
             })
         print(f"  - {doc_id}: {len(chunks)} chunks")
 
@@ -143,9 +146,9 @@ def init_evaluation_collection(chunks: List[Dict], recreate: bool = True):
             "department_id": "",
             "is_public": True,
             "allowed_roles": [],
-            "page_number": chunk["page_number"],
-            "section": chunk["section"],
-            "chunk_index": chunk["chunk_index"],
+            "page_number": chunk.get("page_number") or 1,  # 默认为 1
+            "section": chunk.get("section") or "",
+            "chunk_index": chunk.get("chunk_index") or 0,
             "created_at": int(time.time()),
             "embedding": embedding,
         })
@@ -188,9 +191,9 @@ def init_meilisearch_index(chunks: List[Dict], recreate: bool = True):
             "department_id": "",
             "is_public": True,
             "allowed_roles": [],
-            "page_number": chunk["page_number"],
-            "section": chunk["section"],
-            "chunk_index": chunk["chunk_index"],
+            "page_number": chunk.get("page_number") or 1,
+            "section": chunk.get("section") or "",
+            "chunk_index": chunk.get("chunk_index") or 0,
             "created_at": int(time.time()),
         })
 
@@ -490,6 +493,31 @@ def print_results(vector_result: Dict, bm25_result: Optional[Dict], hybrid_resul
             print(f"{name:<15} {'N/A':<15} {'N/A':<15} {'N/A':<15} {'N/A':<15}")
 
     print("-" * 70)
+
+    # 打印每个问题的详细检索结果（使用向量检索结果）
+    if vector_result and vector_result.get("results"):
+        print(f"\n📋 每个问题的检索详情 (向量检索):")
+        print("=" * 80)
+
+        for i, r in enumerate(vector_result["results"], 1):
+            question = r["question"]
+            relevant = r["relevant"]
+            metrics = r["metrics"]
+            top_results = r.get("top_results", [])
+
+            print(f"\n[{i}] 问题: {question[:60]}...")
+            print(f"    相关 chunk: {relevant}")
+            print(f"    命中: {'✓' if metrics['hit'] else '✗'} | Recall: {metrics['recall']:.2f} | Precision: {metrics['precision']:.2f}")
+            print(f"    检索结果 (Top {top_k}):")
+
+            for j, tr in enumerate(top_results, 1):
+                is_relevant = "🎯" if tr["chunk_id"] in relevant else "  "
+                score_str = f"[{tr['score']:.3f}]" if tr.get("score") else ""
+                content_preview = tr.get("content_preview", "")[:80].replace("\n", " ")
+                print(f"      {is_relevant} {j}. {tr['chunk_id']} {score_str}")
+                print(f"          {content_preview}...")
+
+            print("-" * 80)
 
 
 async def main():

@@ -4,7 +4,32 @@
       "WebSearch",
       "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/query \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"产假有多少天？\"}' | python3 -m json.tool)",
       "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/query \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"差旅报销标准\"}' | python3 -m json.tool)",
-      "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/query \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"上班时间\"}' | python3 -m json.tool)"
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/query \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"上班时间\"}' | python3 -m json.tool)",
+      "Bash(python -m pytest tests/test_parser.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_parser.py -v --tb=short -p no:cacheprovider -o addopts=\"\")",
+      "Bash(pip install fitz pymupdf python-docx openpyxl python-pptx beautifulsoup4 pytesseract)",
+      "Bash(python -m pytest tests/test_parser.py -v --tb=short -o addopts=\"\")",
+      "Bash(pip uninstall fitz -y)",
+      "Bash(pip install pymupdf)",
+      "Bash(python tests/demo_parser.py)",
+      "Bash(python tests/demo_pdf.py)",
+      "Bash(python tests/demo_pdf_full.py)",
+      "Bash(where tesseract)",
+      "Bash(python -c \":*)",
+      "Bash(python tests/demo_ocr_full.py)",
+      "Bash(python -c \"from paddleocr import PaddleOCR; help\\(PaddleOCR.__init__\\)\")",
+      "Bash(python -c \"from app.main import app; print\\(''API导入成功''\\)\")",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(d:/DevKits/Anaconda3/python.exe -c \"import sys; sys.path.insert\\(0, ''d:/Learning/Projects/EnterpriseKB/backend''\\); from app.main import app; print\\(''API导入成功''\\)\")",
+      "Bash(d:/DevKits/Anaconda3/python.exe -m pip list)",
+      "Bash(pip install fastapi uvicorn python-multipart)",
+      "Bash(pip install pydantic-settings sqlalchemy asyncpg alembic python-jose passlib bcrypt)",
+      "Bash(pip install psycopg2-binary)",
+      "Bash(pip install asyncpg)",
+      "Bash(pip install aiosqlite)",
+      "Bash(pip install email-validator)",
+      "Bash(python -c \"import aiosqlite; print\\(''aiosqlite OK''\\)\")",
+      "Bash(timeout 10 python -c \":*)"
     ]
   }
 }

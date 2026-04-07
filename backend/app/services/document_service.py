@@ -20,7 +20,7 @@ from app.schemas.document import DocumentResponse
 from app.integrations.minio_client import get_minio_client
 from app.processors.parser import parse_document
 from app.processors.cleaner import clean_document
-from app.processors.chunker import chunk_document
+from app.processors.chunker import chunk_by_strategy
 from app.processors.multimodal_chunker import multimodal_chunk_document, has_multimodal_content
 from app.rag.embedding import encode_text
 from app.rag.pipeline import RAGPipeline
@@ -175,10 +175,21 @@ class DocumentService:
         )
 
         # 2. 文档分块
-        # 检查是否包含多模态内容
+        # 根据文件类型选择分块策略
         pages = parse_result.get("pages", [])
-        if has_multimodal_content(pages):
-            # 使用多模态分块
+        file_type = parse_result.get("metadata", {}).get("file_type", "")
+
+        # Markdown 文件使用结构化分块
+        if file_type == "md" or cleaned_content.strip().startswith("#"):
+            logger.info(f"Using markdown chunking for document {document_id}")
+            chunks = chunk_by_strategy(
+                document_id=document_id,
+                content=cleaned_content,
+                pages=pages,
+                strategy="markdown"
+            )
+        elif has_multimodal_content(pages):
+            # 检查是否包含多模态内容
             logger.info(f"Using multimodal chunking for document {document_id}")
             chunks = multimodal_chunk_document(
                 document_id=document_id,
@@ -187,7 +198,7 @@ class DocumentService:
             )
         else:
             # 使用传统分块
-            chunks = chunk_document(
+            chunks = chunk_by_strategy(
                 document_id=document_id,
                 content=cleaned_content,
                 pages=pages,

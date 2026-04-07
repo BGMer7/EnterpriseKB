@@ -1,10 +1,19 @@
 """
 文档分块器
-支持固定大小分块、语义分块、结构化分块
+支持固定大小分块、语义分块、结构化分块、Markdown结构化分块
 """
 from typing import List, Dict, Any, Optional
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+# LangChain 分块器（可选依赖）
+try:
+    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    MarkdownHeaderTextSplitter = None
+    RecursiveCharacterTextSplitter = None
 
 
 @dataclass
@@ -438,3 +447,256 @@ def chunk_document(
     chunker = DocumentChunker(chunk_size, chunk_overlap)
     chunks = chunker.chunk(document_id, content, pages, strategy)
     return [c.to_dict() for c in chunks]
+
+
+# ============================================================
+# Markdown 结构化分块器（基于 LangChain）
+# ============================================================
+
+def _protect_tables(text: str) -> tuple[str, List[Dict]]:
+    """
+    保护表格不被切割，将表格单独存储
+    支持 Markdown 表格和 HTML 表格
+
+    Returns:
+        (处理后的文本, 表格列表)
+    """
+    tables = []
+
+    # 1. 匹配 Markdown 表格格式 |col|col|
+    md_table_pattern = r'(\|([^\n|]+\|)+[\s\S]*?(?=\n\n|\n$|$))'
+
+    # 2. 匹配 HTML 表格格式 <table>...</table>
+    html_table_pattern = r'(<table[^>]*>[\s\S]*?</table>)'
+
+    def replace_md_table(match):
+        table_text = match.group(1)
+        tables.append({"type": "markdown", "content": table_text})
+        return f"__TABLE_{len(tables)-1}__"
+
+    def replace_html_table(match):
+        table_text = match.group(1)
+        tables.append({"type": "html", "content": table_text})
+        return f"__TABLE_{len(tables)-1}__"
+
+    # 先处理 Markdown 表格
+    protected_text = re.sub(md_table_pattern, replace_md_table, text)
+    # 再处理 HTML 表格
+    protected_text = re.sub(html_table_pattern, replace_html_table, protected_text)
+
+    return protected_text, tables
+
+
+def _restore_tables(text: str, tables: List[Dict]) -> str:
+    """恢复表格占位符，Markdown 表格保持原样，HTML 表格转换为 Markdown"""
+    for i, table in enumerate(tables):
+        table_content = table["content"]
+        table_type = table.get("type", "markdown")
+
+        if table_type == "html":
+            # HTML 表格转换为 Markdown 格式
+            md_table = _html_table_to_markdown(table_content)
+            text = text.replace(f"__TABLE_{i}__", md_table)
+        else:
+            # Markdown 表格保持原样
+            text = text.replace(f"__TABLE_{i}__", table_content)
+
+    return text
+
+
+def _html_table_to_markdown(html_table: str) -> str:
+    """将 HTML 表格转换为 Markdown 表格"""
+    import re
+
+    # 提取所有行
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html_table, re.DOTALL)
+    if not rows:
+        return html_table
+
+    md_rows = []
+    for row in rows:
+        # 提取单元格
+        cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', row, re.DOTALL)
+        # 清理单元格内容（移除 HTML 标签）
+        cells = [re.sub(r'<[^>]+>', '', c).strip().replace('\n', ' ').replace('\r', '') for c in cells]
+        if cells:
+            md_rows.append('|' + '|'.join(cells) + '|')
+
+    # 添加分隔行
+    if len(md_rows) > 1:
+        header_row = md_rows[0]
+        separator_count = header_row.count('|') - 1
+        separators = '|' + '|'.join(['---'] * separator_count) + '|'
+        md_rows.insert(1, separators)
+
+    return '\n'.join(md_rows)
+
+
+def _protect_formulas(text: str) -> str:
+    """保护公式不被切割"""
+    # 匹配 $...$ 和 $$...$$
+    text = re.sub(r'\$\$[\s\S]+?\$\$', lambda m: f"__FORMULA_{hash(m.group())}__", text)
+    text = re.sub(r'\$[^\$\n]+?\$', lambda m: f"__FORMULA_{hash(m.group())}__", text)
+    return text
+
+
+def markdown_chunk(
+    document_id: str,
+    content: str,
+    pages: List[Dict[str, Any]] = None,
+    chunk_size: int = 512,
+    chunk_overlap: int = 64
+) -> List[Dict[str, Any]]:
+    """
+    Markdown 文档分块（两阶段切割）
+
+    第一阶段：按 Markdown 标题结构切割
+    第二阶段：对过长块递归切割
+
+    Args:
+        document_id: 文档ID
+        content: Markdown 文本内容
+        pages: 页面信息列表（可选）
+        chunk_size: 块大小（token）
+        chunk_overlap: 块重叠大小
+
+    Returns:
+        List[Dict]: 分块结果列表
+    """
+    if not LANGCHAIN_AVAILABLE:
+        raise ImportError("需要安装 langchain: pip install langchain")
+
+    # 0. 预处理：保护特殊内容
+    original_content = content
+    content, tables = _protect_tables(content)
+    content = _protect_formulas(content)
+
+    # 1. 第一阶段：按 Markdown 标题切割
+    headers_to_split_on = [
+        ("#", "title"),
+        ("##", "section"),
+        ("###", "subsection"),
+        ("####", "subsubsection"),
+    ]
+
+    md_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=headers_to_split_on,
+        strip_headers=False
+    )
+
+    try:
+        header_chunks = md_splitter.split_text(content)
+    except Exception as e:
+        # 如果 Markdown 解析失败，回退到普通分块
+        print(f"  ⚠️ Markdown 分割失败，回退到固定分块: {e}")
+        chunker = DocumentChunker(chunk_size, chunk_overlap)
+        return chunker.chunk(document_id, original_content, pages or [], "fixed")
+
+    # 2. 第二阶段：对过长块递归切割
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", "。", "！", "？", "；", " ", ""],
+        length_function=lambda x: len(x) * 1.5  # 中文估算
+    )
+
+    # 3. 处理每个 header chunk
+    chunks = []
+    chunk_index = 0
+
+    for i, doc in enumerate(header_chunks):
+        # 获取 metadata
+        metadata = dict(doc.metadata) if doc.metadata else {}
+
+        # 检查长度是否需要二次切割
+        text = doc.page_content
+        text_length = len(text) * 1.5  # 估算 token
+
+        if text_length > chunk_size * 1.5:
+            # 需要二次切割
+            sub_texts = text_splitter.split_text(text)
+            for sub_text in sub_texts:
+                # 继承父级 metadata
+                sub_metadata = metadata.copy()
+
+                # 恢复特殊内容
+                sub_text = _restore_tables(sub_text, tables)
+
+                chunks.append({
+                    "chunk_id": f"{document_id}_chunk_{chunk_index}",
+                    "document_id": document_id,
+                    "content": sub_text,
+                    "chunk_index": chunk_index,
+                    "page_number": metadata.get("page_number"),
+                    "section": sub_metadata.get("section") or sub_metadata.get("subsection"),
+                    "metadata": {
+                        "strategy": "markdown",
+                        "title": sub_metadata.get("title"),
+                        "section": sub_metadata.get("section"),
+                        "subsection": sub_metadata.get("subsection"),
+                        "headers": {k: v for k, v in sub_metadata.items() if k.startswith("header_")}
+                    }
+                })
+                chunk_index += 1
+        else:
+            # 长度合适，直接使用
+            # 恢复特殊内容
+            text = _restore_tables(text, tables)
+
+            chunks.append({
+                "chunk_id": f"{document_id}_chunk_{chunk_index}",
+                "document_id": document_id,
+                "content": text,
+                "chunk_index": chunk_index,
+                "page_number": metadata.get("page_number"),
+                "section": metadata.get("section") or metadata.get("subsection"),
+                "metadata": {
+                    "strategy": "markdown",
+                    "title": metadata.get("title"),
+                    "section": metadata.get("section"),
+                    "subsection": metadata.get("subsection"),
+                    "headers": {k: v for k, v in metadata.items() if k.startswith("header_")}
+                }
+            })
+            chunk_index += 1
+
+    # 4. 过滤过短的 chunk
+    min_size = 50
+    filtered_chunks = [c for c in chunks if len(c["content"]) >= min_size]
+
+    # 重新编号
+    for i, c in enumerate(filtered_chunks):
+        c["chunk_id"] = f"{document_id}_chunk_{i}"
+        c["chunk_index"] = i
+
+    print(f"  ✓ Markdown 分块: {len(filtered_chunks)} 个 chunks")
+    return filtered_chunks
+
+
+def chunk_by_strategy(
+    document_id: str,
+    content: str,
+    pages: List[Dict[str, Any]] = None,
+    strategy: str = "fixed",
+    chunk_size: int = 512,
+    chunk_overlap: int = 50
+) -> List[Dict[str, Any]]:
+    """
+    根据策略分块（统一入口）
+
+    Args:
+        document_id: 文档ID
+        content: 文档内容
+        pages: 页面信息列表
+        strategy: 分块策略 (fixed, semantic, structural, markdown)
+        chunk_size: 块大小
+        chunk_overlap: 块重叠大小
+
+    Returns:
+        List[Dict]: 分块结果列表
+    """
+    if strategy == "markdown":
+        return markdown_chunk(document_id, content, pages, chunk_size, chunk_overlap)
+    else:
+        chunker = DocumentChunker(chunk_size, chunk_overlap)
+        return chunker.chunk(document_id, content, pages, strategy)
